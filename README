@@ -1,0 +1,14 @@
+A cross-platform gamepad library.
+
+This library is intended for another project (closed-source, sorry) which may
+require cross-platform gamepad support. Only necessary features are implemented,
+i.e.
+
+ - Disambiguating different gamepads.
+
+ - Hotplugging support, with guarentee that the gamepad will not be mixed when
+   such event happens.
+   
+ - Handling axis and button events.
+
+ - Uses BSD or more flexible license.
