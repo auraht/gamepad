@@ -3,4 +3,6 @@
 *.so
 *.exe
 *.dll
+*.lib
+darwin/test
 .DS_Store

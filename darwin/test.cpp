@@ -40,23 +40,23 @@ struct Context {
 };
 
 void gamepad_axis_changed(void*, GP::Gamepad* gamepad, GP::Gamepad::Axis axis, long new_value) {
-    printf("Gamepad %lx: Axis %s changed to %ld.\n", gamepad->local_address(), GP::Gamepad::axis_name(axis), new_value);
+    printf("Gamepad %p: Axis %s changed to %ld.\n", gamepad, GP::Gamepad::axis_name(axis), new_value);
 }
 
 void gamepad_button_changed(void*, GP::Gamepad* gamepad, int button, bool is_pressed) {
-    printf("Gamepad %lx: Button %d is %s.\n", gamepad->local_address(),button, is_pressed ? "down" : "up");
+    printf("Gamepad %p: Button %d is %s.\n", gamepad,button, is_pressed ? "down" : "up");
 }
 
 
 void gamepad_state_changed(void* self, GP::Gamepad* gamepad, GP::GamepadChangedObserver::State state) {
     if (state == GP::GamepadChangedObserver::kDetaching) {
-        printf("Gamepad %lx is detached, quitting.\n", gamepad->local_address());
+        printf("Gamepad %p is detached, quitting.\n", gamepad);
         
         Context* ctx = static_cast<Context*>(self);
         ctx->quit = true;
         CFRunLoopSourceSignal(ctx->rls);
     } else {
-        printf("Gamepad %lx is attached.\n", gamepad->local_address());
+        printf("Gamepad %p is attached.\n", gamepad);
         
         gamepad->set_axis_changed_callback(NULL, gamepad_axis_changed);
         gamepad->set_button_changed_callback(NULL, gamepad_button_changed);

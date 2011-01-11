@@ -45,7 +45,9 @@ namespace GP {
         const char* what() const throw() { return _message; }
     };
     
-        
+    struct MultipleObserverException : public BaseException {
+        MultipleObserverException() : BaseException("Cannot attach more than one observer to the same event loop") {}
+    };
     
     struct NoEventloopException : public BaseException {
         NoEventloopException() : BaseException("Cannot obtain a handle to the system event loop.") {}

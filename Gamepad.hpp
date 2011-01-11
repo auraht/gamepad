@@ -116,10 +116,6 @@ namespace GP {
             _button_changed_callback = callback;
         }
         
-        virtual unsigned long local_address() const = 0;
-        /// TODO: Implement a "global_address" (serial number) obtained from the
-        //        gamepad itself.
-        
         /// Return the upper limit of value the axis can take.
         long axis_bound(Axis axis) const { return _centroid[to_index(axis)]; }
         

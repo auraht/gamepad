@@ -87,11 +87,4 @@ namespace GP {
 
         IOHIDDeviceRegisterInputValueCallback(device, Gamepad_Darwin::handle_input_value, this);
     }
-    
-    unsigned long Gamepad_Darwin::local_address() const {
-        CFNumberRef location = static_cast<CFNumberRef>(IOHIDDeviceGetProperty(_device, CFSTR(kIOHIDLocationIDKey)));
-        uintptr_t retval;
-        CFNumberGetValue(location, kCFNumberLongType, &retval);
-        return retval;
-    }
 }

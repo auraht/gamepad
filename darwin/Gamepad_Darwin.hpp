@@ -44,9 +44,6 @@ namespace GP {
         
         static void handle_input_value(void* context, IOReturn result, void* sender, IOHIDValueRef value);
         
-    protected:
-        virtual unsigned long local_address() const;
-        
     public:
         Gamepad_Darwin(IOHIDDeviceRef device);
     };

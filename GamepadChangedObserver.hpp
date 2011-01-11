@@ -33,6 +33,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef GAMEPAD_CHANGED_OBSERVER_HPP_rskkt3ru5raa714i
 #define GAMEPAD_CHANGED_OBSERVER_HPP_rskkt3ru5raa714i 1
 
+#ifdef _WINDLL
+#define EXPORT __declspec(dllexport)
+#else
+#define EXPORT
+#endif
+
 namespace GP {
     class Gamepad;
     class Eventloop;
@@ -61,7 +67,7 @@ namespace GP {
         GamepadChangedObserver(void* self, Callback callback)
             : _self(self), _callback(callback) {}
         
-        static GamepadChangedObserver* create_impl(void* self, Callback callback, void* eventloop);
+        static EXPORT GamepadChangedObserver* create_impl(void* self, Callback callback, void* eventloop);
         
     public:
         // remember to use 'delete' to kill the observer.
