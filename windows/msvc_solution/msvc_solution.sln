@@ -1,0 +1,29 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual C++ Express 2010
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "gamepad", "gamepad\gamepad.vcxproj", "{98A3CC36-BA7C-4795-B2EA-4A6CDD98B209}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "test", "test\test.vcxproj", "{5C10F769-8734-43EA-8A02-11ECD40720C8}"
+	ProjectSection(ProjectDependencies) = postProject
+		{98A3CC36-BA7C-4795-B2EA-4A6CDD98B209} = {98A3CC36-BA7C-4795-B2EA-4A6CDD98B209}
+	EndProjectSection
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release|Win32 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{98A3CC36-BA7C-4795-B2EA-4A6CDD98B209}.Debug|Win32.ActiveCfg = Debug|Win32
+		{98A3CC36-BA7C-4795-B2EA-4A6CDD98B209}.Debug|Win32.Build.0 = Debug|Win32
+		{98A3CC36-BA7C-4795-B2EA-4A6CDD98B209}.Release|Win32.ActiveCfg = Release|Win32
+		{98A3CC36-BA7C-4795-B2EA-4A6CDD98B209}.Release|Win32.Build.0 = Release|Win32
+		{5C10F769-8734-43EA-8A02-11ECD40720C8}.Debug|Win32.ActiveCfg = Debug|Win32
+		{5C10F769-8734-43EA-8A02-11ECD40720C8}.Debug|Win32.Build.0 = Debug|Win32
+		{5C10F769-8734-43EA-8A02-11ECD40720C8}.Release|Win32.ActiveCfg = Release|Win32
+		{5C10F769-8734-43EA-8A02-11ECD40720C8}.Release|Win32.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

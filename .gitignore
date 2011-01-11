@@ -6,3 +6,10 @@
 *.lib
 darwin/test
 .DS_Store
+*.sdf
+*.opensdf
+*.suo
+windows/msvc_solution/Debug
+windows/msvc_solution/Release
+windows/msvc_solution/*/Debug
+windows/msvc_solution/*/Release
