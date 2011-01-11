@@ -37,8 +37,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../GamepadChangedObserver.hpp"
 #include <IOKit/hid/IOHIDManager.h>
 #include <CoreFoundation/CoreFoundation.h>
-#include <boost/tr1/unordered_map.hpp>
-#include <boost/tr1/memory.hpp>
+#include <tr1/unordered_map>
+#include <tr1/memory>
 
 namespace GP {
     class Gamepad_Darwin;

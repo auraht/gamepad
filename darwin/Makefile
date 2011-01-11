@@ -33,7 +33,7 @@ FRAMEWORKS=-framework CoreFoundation -framework IOKit
 OBJECTS=Gamepad_Darwin.o GamepadChangedObserver_Darwin.o Eventloop_Darwin.o
 
 CXX=g++
-CPPFLAGS=-I/opt/local/include
+CPPFLAGS=
 CXXFLAGS=-Wall -Wextra -O3
 LDFLAGS=$(FRAMEWORKS) -dynamiclib 
 

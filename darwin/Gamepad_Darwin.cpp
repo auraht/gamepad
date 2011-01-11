@@ -33,7 +33,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "Gamepad_Darwin.hpp"
 #include <CoreFoundation/CoreFoundation.h>
-#include <boost/tr1/unordered_map.hpp>
+#include <tr1/unordered_map>
 #include <algorithm>
 
 namespace GP {
