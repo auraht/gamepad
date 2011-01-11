@@ -51,8 +51,6 @@ namespace GP {
         Callback _callback;
         
     protected:
-        Eventloop* _eventloop;
-
         virtual void observe_impl() = 0;
         
         void handle_event(Gamepad* gamepad, State state) const {
@@ -60,14 +58,14 @@ namespace GP {
                 _callback(_self, gamepad, state);
         }
         
-        GamepadChangedObserver(void* self, Callback callback, Eventloop* eventloop)
-            : _self(self), _callback(callback), _eventloop(eventloop) {}
+        GamepadChangedObserver(void* self, Callback callback)
+            : _self(self), _callback(callback) {}
         
-        static GamepadChangedObserver* create_impl(void* self, Callback callback, Eventloop* eventloop);
+        static GamepadChangedObserver* create_impl(void* self, Callback callback, void* eventloop);
         
     public:
         // remember to use 'delete' to kill the observer.
-        static GamepadChangedObserver* create(void* self, Callback callback, Eventloop* eventloop) {
+        static GamepadChangedObserver* create(void* self, Callback callback, void* eventloop) {
             GamepadChangedObserver* retval = create_impl(self, callback, eventloop);
             retval->observe_impl();
             return retval;

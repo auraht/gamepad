@@ -33,7 +33,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <CoreFoundation/CoreFoundation.h>
 #include "GamepadChangedObserver.hpp"
 #include "Gamepad.hpp"
-#include "Eventloop.hpp"
 
 struct Context {
     CFRunLoopSourceRef rls;
@@ -74,8 +73,7 @@ int main () {
     
     Context ctx = {rls, false};
     
-    GP::Eventloop* evloop = GP::Eventloop::create(rl);
-    GP::GamepadChangedObserver* observer = GP::GamepadChangedObserver::create(&ctx, gamepad_state_changed, evloop);
+    GP::GamepadChangedObserver* observer = GP::GamepadChangedObserver::create(&ctx, gamepad_state_changed, rl);
 
     while (CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0, true)) {
         if (ctx.quit)
@@ -86,7 +84,6 @@ int main () {
     CFRelease(rls);
     
     delete observer;
-    delete evloop;
     
     return 0;
 }

@@ -47,6 +47,7 @@ namespace GP {
     private:
         IOHIDManagerRef _manager;
         std::tr1::unordered_map<IOHIDDeviceRef, std::tr1::shared_ptr<Gamepad_Darwin> > _active_devices;
+        CFRunLoopRef _runloop;
         
         static void matched_device_cb(void* context, IOReturn result, void* sender, IOHIDDeviceRef device);
         static void removing_device_cb(void* context, IOReturn result, void* sender, IOHIDDeviceRef device);
@@ -56,8 +57,9 @@ namespace GP {
         void unobserve_impl();
         
     public:
-        GamepadChangedObserver_Darwin(void* self, Callback callback, Eventloop* eventloop)
-            : GamepadChangedObserver(self, callback, eventloop), _manager(NULL) {}
+        GamepadChangedObserver_Darwin(void* self, Callback callback, void* eventloop)
+            : GamepadChangedObserver(self, callback),
+              _manager(NULL), _runloop(static_cast<CFRunLoopRef>(eventloop)) {}
               
         ~GamepadChangedObserver_Darwin() {
             this->unobserve_impl();

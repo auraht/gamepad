@@ -30,7 +30,7 @@
 
 
 FRAMEWORKS=-framework CoreFoundation -framework IOKit
-OBJECTS=Gamepad_Darwin.o GamepadChangedObserver_Darwin.o Eventloop_Darwin.o
+OBJECTS=Gamepad_Darwin.o GamepadChangedObserver_Darwin.o
 
 CXX=g++
 CPPFLAGS=

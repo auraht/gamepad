@@ -33,7 +33,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "GamepadChangedObserver_Darwin.hpp"
 #include "Gamepad_Darwin.hpp"
-#include "../Eventloop.hpp"
 #include "../Exception.hpp"
 
 #include <algorithm>
@@ -89,14 +88,12 @@ namespace GP {
         IOHIDManagerRegisterDeviceMatchingCallback(_manager, GamepadChangedObserver_Darwin::matched_device_cb, this);
         IOHIDManagerRegisterDeviceRemovalCallback(_manager, GamepadChangedObserver_Darwin::removing_device_cb, this);
 
-        CFRunLoopRef runloop = static_cast<CFRunLoopRef>(_eventloop->content());
-        IOHIDManagerScheduleWithRunLoop(_manager, runloop, kCFRunLoopDefaultMode);
+        IOHIDManagerScheduleWithRunLoop(_manager, _runloop, kCFRunLoopDefaultMode);
         IOHIDManagerOpen(_manager, kIOHIDOptionsTypeNone);
     }
     
     void GamepadChangedObserver_Darwin::unobserve_impl() {
-        CFRunLoopRef runloop = static_cast<CFRunLoopRef>(_eventloop->content());
-        IOHIDManagerUnscheduleFromRunLoop(_manager, runloop, kCFRunLoopDefaultMode);
+        IOHIDManagerUnscheduleFromRunLoop(_manager, _runloop, kCFRunLoopDefaultMode);
         IOHIDManagerRegisterDeviceMatchingCallback(_manager, NULL, NULL);
         IOHIDManagerRegisterDeviceRemovalCallback(_manager, NULL, NULL);
         IOHIDManagerClose(_manager, kIOHIDOptionsTypeNone);
@@ -105,7 +102,7 @@ namespace GP {
         _active_devices.clear();
     }
     
-    GamepadChangedObserver* GamepadChangedObserver::create_impl(void* self, Callback callback, Eventloop* eventloop) {
+    GamepadChangedObserver* GamepadChangedObserver::create_impl(void* self, Callback callback, void* eventloop) {
         return new GamepadChangedObserver_Darwin(self, callback, eventloop);
     }
 }
