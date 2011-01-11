@@ -1,7 +1,6 @@
 /*
  
-GamepadEventloop_Darwin.cpp ... Implementation of GamepadEventloop for Darwin
-                                (i.e. Mac OS X).
+Eventloop_Darwin.cpp ... Implementation of Eventloop for Darwin (i.e. Mac OS X).
 
 Copyright (c) 2011  KennyTM~ <kennytm@gmail.com>
 All rights reserved.
