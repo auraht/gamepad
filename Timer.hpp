@@ -33,6 +33,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef TIMER_HPP_ngil72o5nr7fogvi
 #define TIMER_HPP_ngil72o5nr7fogvi 1
 
+#if _WINDLL
+#define EXPORT __declspec(dllexport)
+#else
+#define EXPORT
+#endif
+
 namespace GP {
     class Timer {
     public:
@@ -65,7 +71,7 @@ namespace GP {
         }
         virtual ~Timer() {}
     
-        static Timer* create(void* self, Callback callback, int milliseconds, void* eventloop);
+        static EXPORT Timer* create(void* self, Callback callback, int milliseconds, void* eventloop);
     };
 }
 
