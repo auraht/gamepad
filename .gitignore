@@ -5,6 +5,7 @@
 *.dll
 *.lib
 darwin/test
+darwin/test_timer
 .DS_Store
 *.sdf
 *.opensdf

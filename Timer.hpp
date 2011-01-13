@@ -1,6 +1,6 @@
 /*
  
-GamepadChangedObserver.hpp ... Observe if a gamepad device has been changed.
+Timer.hpp ... Platform-independent timer
 
 Copyright (c) 2011  aura Human Technology Ltd.  <rnd@auraht.com>
 All rights reserved.
@@ -30,56 +30,43 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef GAMEPAD_CHANGED_OBSERVER_HPP_rskkt3ru5raa714i
-#define GAMEPAD_CHANGED_OBSERVER_HPP_rskkt3ru5raa714i 1
-
-#ifdef _WINDLL
-#define EXPORT __declspec(dllexport)
-#else
-#define EXPORT
-#endif
+#ifndef TIMER_HPP_ngil72o5nr7fogvi
+#define TIMER_HPP_ngil72o5nr7fogvi 1
 
 namespace GP {
-    class Gamepad;
-    class Eventloop;
-    
-    class GamepadChangedObserver {
+    class Timer {
     public:
-        enum State {
-            kAttached,
-            kDetaching
-        }; 
-    
-        typedef void (*Callback)(void* self, Gamepad* gamepad, State state);
-    
+        typedef void (*Callback)(void* self, Timer* timer);
+
     private:
         void* _self;
         Callback _callback;
         
     protected:
-        virtual void observe_impl() = 0;
+        bool _stopped;
         
-        void handle_event(Gamepad* gamepad, State state) const {
+        Timer(void* self, Callback callback)
+            : _self(self), _callback(callback), _stopped(false) {}
+            
+        void handle_timer() {
             if (_callback)
-                _callback(_self, gamepad, state);
+                _callback(_self, this);
         }
         
-        GamepadChangedObserver(void* self, Callback callback)
-            : _self(self), _callback(callback) {}
-        
-        static EXPORT GamepadChangedObserver* create_impl(void* self, Callback callback, void* eventloop);
-        
+        virtual void stop_impl() = 0;
+              
     public:
-        // remember to use 'delete' to kill the observer.
-        static GamepadChangedObserver* create(void* self, Callback callback, void* eventloop) {
-            GamepadChangedObserver* retval = create_impl(self, callback, eventloop);
-            retval->observe_impl();
-            return retval;
+        bool running() const { return !_stopped; }
+        void stop() {
+            if (!_stopped) {
+                this->stop_impl();
+                _stopped = true; 
+            }
         }
-        
-        virtual ~GamepadChangedObserver() {}
-    };
+        virtual ~Timer() {}
     
+        static Timer* create(void* self, Callback callback, int milliseconds, void* eventloop);
+    };
 }
 
 #endif

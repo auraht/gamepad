@@ -1,6 +1,6 @@
 /*
  
-GamepadChangedObserver.hpp ... Observe if a gamepad device has been changed.
+test.cpp ... Test functionality of libgamepad.
 
 Copyright (c) 2011  aura Human Technology Ltd.  <rnd@auraht.com>
 All rights reserved.
@@ -30,56 +30,48 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef GAMEPAD_CHANGED_OBSERVER_HPP_rskkt3ru5raa714i
-#define GAMEPAD_CHANGED_OBSERVER_HPP_rskkt3ru5raa714i 1
+#include <CoreFoundation/CoreFoundation.h>
+#include "Timer.hpp"
+#include <ctime>
+#include <cstdio>
 
-#ifdef _WINDLL
-#define EXPORT __declspec(dllexport)
-#else
-#define EXPORT
-#endif
+struct Context {
+    CFRunLoopSourceRef rls;
+    int countdown;
+    CFAbsoluteTime init_time;
+};
 
-namespace GP {
-    class Gamepad;
-    class Eventloop;
-    
-    class GamepadChangedObserver {
-    public:
-        enum State {
-            kAttached,
-            kDetaching
-        }; 
-    
-        typedef void (*Callback)(void* self, Gamepad* gamepad, State state);
-    
-    private:
-        void* _self;
-        Callback _callback;
-        
-    protected:
-        virtual void observe_impl() = 0;
-        
-        void handle_event(Gamepad* gamepad, State state) const {
-            if (_callback)
-                _callback(_self, gamepad, state);
-        }
-        
-        GamepadChangedObserver(void* self, Callback callback)
-            : _self(self), _callback(callback) {}
-        
-        static EXPORT GamepadChangedObserver* create_impl(void* self, Callback callback, void* eventloop);
-        
-    public:
-        // remember to use 'delete' to kill the observer.
-        static GamepadChangedObserver* create(void* self, Callback callback, void* eventloop) {
-            GamepadChangedObserver* retval = create_impl(self, callback, eventloop);
-            retval->observe_impl();
-            return retval;
-        }
-        
-        virtual ~GamepadChangedObserver() {}
-    };
-    
+
+void timer_fired(void* self, GP::Timer*) {
+    Context* ctx = static_cast<Context*>(self);
+    printf("Timer fired (%2d/20) [Elapsed: %g]\n", ctx->countdown, CFAbsoluteTimeGetCurrent() - ctx->init_time);
+    -- ctx->countdown;
+    if (ctx->countdown <= 0) {
+        CFRunLoopSourceSignal(ctx->rls);
+    }
 }
 
-#endif
+int main () {
+    CFRunLoopRef rl = CFRunLoopGetMain();
+        
+    CFRunLoopSourceContext rlsctx;
+    memset(&rlsctx, 0, sizeof(rlsctx));
+    CFRunLoopSourceRef rls = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &rlsctx);
+    CFRunLoopAddSource(rl, rls, kCFRunLoopDefaultMode);
+    
+    Context ctx = {rls, 20, CFAbsoluteTimeGetCurrent()};
+    
+    GP::Timer* timer = GP::Timer::create(&ctx, timer_fired, 250, rl);
+
+    while (CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0, true)) {
+        if (ctx.countdown <= 0)
+            break;
+    }
+    
+    CFRunLoopSourceInvalidate(rls);
+    CFRelease(rls);
+    
+    delete timer;
+    
+    return 0;
+}

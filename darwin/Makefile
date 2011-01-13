@@ -30,7 +30,7 @@
 
 
 FRAMEWORKS=-framework CoreFoundation -framework IOKit
-OBJECTS=Gamepad_Darwin.o GamepadChangedObserver_Darwin.o
+OBJECTS=Gamepad_Darwin.o GamepadChangedObserver_Darwin.o Timer_Darwin.o
 
 CXX=g++
 CPPFLAGS=
@@ -46,6 +46,9 @@ clean:
 	$(RM) $(OBJECTS)
 
 test: test.cpp
+	$(CXX) -o $@ $(CXXFLAGS) -framework CoreFoundation -L. -lgamepad -iquote .. $^
+
+test_timer: test_timer.cpp
 	$(CXX) -o $@ $(CXXFLAGS) -framework CoreFoundation -L. -lgamepad -iquote .. $^
 
 libgamepad.dylib: $(OBJECTS)
