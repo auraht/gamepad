@@ -36,18 +36,16 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../Exception.hpp"
 
 #include <unordered_map>
+#include <vector>
 
-const USHORT kHIDPage_GenericDesktop = 1;
-const USHORT kHIDUsage_GD_Joystick = 4;
-const USHORT kHIDUsage_GD_GamePad = 5;
-const USHORT kHIDUsage_GD_MultiAxisController = 8;
-
+#include "hidusage.h"
+const USHORT HID_USAGE_GENERIC_MULTI_AXIS_CONTROLLER = 8;
 
 namespace GP {
-    static std::tr1::unordered_map<HWND, GamepadChangedObserver_Windows*> _OBSERVERS;
+    static std::unordered_map<HWND, GamepadChangedObserver_Windows*> _OBSERVERS;
 
     LRESULT CALLBACK GamepadChangedObserver_Windows::message_handler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-        std::tr1::unordered_map<HWND, GamepadChangedObserver_Windows*>::const_iterator cit = _OBSERVERS.find(hwnd);
+        auto cit = _OBSERVERS.find(hwnd);
         /// TODO: Should we test whether cit is valid?
         GamepadChangedObserver_Windows* this_ = cit->second;
 
@@ -60,11 +58,30 @@ namespace GP {
                     this_->_active_devices.insert(std::make_pair(hdevice, gamepad));
                     this_->handle_event(gamepad.get(), kAttached);
                 } else if (wparam == GIDC_REMOVAL) {
-                    std::tr1::unordered_map<HANDLE, std::tr1::shared_ptr<Gamepad_Windows> >::iterator it = this_->_active_devices.find(hdevice);
+                    auto it = this_->_active_devices.find(hdevice);
                     this_->handle_event(it->second.get(), kDetaching);
                     this_->_active_devices.erase(it);
                 }
                 break;
+            }
+
+        case WM_INPUT:
+            {
+                UINT buffer_size;
+                HRAWINPUT hdata = reinterpret_cast<HRAWINPUT>(lparam);
+
+                GetRawInputData(hdata, RID_INPUT, NULL, &buffer_size, sizeof(RAWINPUTHEADER));
+                std::vector<char> buffer (buffer_size);
+                RAWINPUT* input = reinterpret_cast<RAWINPUT*>(&buffer[0]);
+
+                /// TODO: Throw if GetRawInputData returns incorrect size.
+                GetRawInputData(hdata, RID_INPUT, input, &buffer_size, sizeof(RAWINPUTHEADER));
+                
+                auto it = this_->_active_devices.find(input->header.hDevice);
+                Gamepad_Windows* gamepad = it->second.get();
+                gamepad->handle_raw_input(input->data.hid);
+
+                return DefWindowProc(hwnd, msg, wparam, lparam);
             }
 
         default:
@@ -75,36 +92,35 @@ namespace GP {
     }
 
     void GamepadChangedObserver_Windows::observe_impl() {
-        std::pair<std::tr1::unordered_map<HWND, GamepadChangedObserver_Windows*>::iterator, bool>
+        /// TODO: Need a mutex here.
+        std::pair<std::unordered_map<HWND, GamepadChangedObserver_Windows*>::iterator, bool>
             res = _OBSERVERS.insert(std::make_pair(_hwnd, this));
         if (!res.second) {
             throw MultipleObserverException();
         }
 
         RAWINPUTDEVICE devices_to_register[] = {
-            {kHIDPage_GenericDesktop, kHIDUsage_GD_Joystick, RIDEV_DEVNOTIFY|RIDEV_INPUTSINK, _hwnd},
-            {kHIDPage_GenericDesktop, kHIDUsage_GD_GamePad, RIDEV_DEVNOTIFY|RIDEV_INPUTSINK, _hwnd},
-            {kHIDPage_GenericDesktop, kHIDUsage_GD_MultiAxisController, RIDEV_DEVNOTIFY|RIDEV_INPUTSINK, _hwnd}
+            {HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_JOYSTICK, RIDEV_DEVNOTIFY|RIDEV_INPUTSINK, _hwnd},
+            {HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_GAMEPAD, RIDEV_DEVNOTIFY|RIDEV_INPUTSINK, _hwnd},
+            {HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_MULTI_AXIS_CONTROLLER, RIDEV_DEVNOTIFY|RIDEV_INPUTSINK, _hwnd}
         };
         RegisterRawInputDevices(devices_to_register, sizeof(devices_to_register)/sizeof(*devices_to_register), sizeof(*devices_to_register));
 
 
         _orig_wndproc = reinterpret_cast<WNDPROC>(GetWindowLongPtr(_hwnd, GWLP_WNDPROC));
         SetWindowLongPtr(_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(GamepadChangedObserver_Windows::message_handler));
-
-        
-
     }
 
     void GamepadChangedObserver_Windows::unobserve_impl() {
+        /// TODO: Need a mutex here.
         SetWindowLongPtr(_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(_orig_wndproc));
         _OBSERVERS.erase(_hwnd);
 
         /// TODO: Are these necessary???
         RAWINPUTDEVICE devices_to_register[] = {
-            {kHIDPage_GenericDesktop, kHIDUsage_GD_Joystick, RIDEV_REMOVE, NULL},
-            {kHIDPage_GenericDesktop, kHIDUsage_GD_GamePad, RIDEV_REMOVE, NULL},
-            {kHIDPage_GenericDesktop, kHIDUsage_GD_MultiAxisController, RIDEV_REMOVE, NULL}
+            {HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_JOYSTICK, RIDEV_REMOVE, NULL},
+            {HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_GAMEPAD, RIDEV_REMOVE, NULL},
+            {HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_MULTI_AXIS_CONTROLLER, RIDEV_REMOVE, NULL}
         };
         RegisterRawInputDevices(devices_to_register, sizeof(devices_to_register)/sizeof(*devices_to_register), sizeof(*devices_to_register));
     }

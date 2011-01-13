@@ -35,13 +35,26 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "../Gamepad.hpp"
 #include <Windows.h>
+#include <vector>
+#include <unordered_set>
+#include "hidpi.h"
 
 namespace GP {
     class Gamepad_Windows : public Gamepad {
     private:
         HANDLE _hdevice;
+        std::vector<char> _preparsed_buf;
+        PHIDP_PREPARSED_DATA _preparsed;
+
+        ULONG _buttons_count;
+        std::unordered_set<USAGE> _previous_active_buttons;
+        std::vector<Axis> _axes;
+        ULONG _previous_axis_values[kMaxAxisIndex];
+        
     public:
         Gamepad_Windows(HANDLE hdevice);
+
+        void handle_raw_input(const RAWHID& hid);
     };
 }
 

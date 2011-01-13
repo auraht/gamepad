@@ -38,28 +38,38 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 const int display_text_size = 1024;
 static TCHAR display_text[display_text_size];
 
-void gamepad_axis_changed(void*, GP::Gamepad* gamepad, GP::Gamepad::Axis axis, long new_value) {
-    _sntprintf(display_text, display_text_size, _T("Gamepad %p: Axis %s changed to %ld."), gamepad, GP::Gamepad::axis_name(axis), new_value);
+static int update_event_number() {
+    static int event_number = 0;
+    event_number ++;
+    if (event_number >= 100)
+        event_number = 0;
+    return event_number;
 }
 
-void gamepad_button_changed(void*, GP::Gamepad* gamepad, int button, bool is_pressed) {
-    _sntprintf(display_text, display_text_size, _T("Gamepad %p: Button %d is %s."), gamepad,button, is_pressed ? "down" : "up");
+void gamepad_axis_changed(void* hwnd, GP::Gamepad* gamepad, GP::Gamepad::Axis axis, long new_value) {
+    _sntprintf(display_text, display_text_size, _T("[%02d] Gamepad %p: Axis %s changed to %ld."), update_event_number(), gamepad, GP::Gamepad::axis_name<TCHAR>(axis), new_value);
+
+    RedrawWindow(static_cast<HWND>(hwnd), NULL, NULL, RDW_INVALIDATE|RDW_ERASE);
+}
+
+void gamepad_button_changed(void* hwnd, GP::Gamepad* gamepad, int button, bool is_pressed) {
+    _sntprintf(display_text, display_text_size, _T("[%02d] Gamepad %p: Button %d is %s."), update_event_number(), gamepad,button, is_pressed ? _T("down") : _T("up"));
+
+    RedrawWindow(static_cast<HWND>(hwnd), NULL, NULL, RDW_INVALIDATE|RDW_ERASE);
 }
 
 
 void gamepad_state_changed(void* hwnd, GP::Gamepad* gamepad, GP::GamepadChangedObserver::State state) {
     if (state == GP::GamepadChangedObserver::kDetaching) {
-        _sntprintf(display_text, display_text_size, _T("Gamepad %p is detached."), gamepad);
+        _sntprintf(display_text, display_text_size, _T("[%02d] Gamepad %p is detached."), update_event_number(), gamepad);
     } else {
-        _sntprintf(display_text, display_text_size, _T("Gamepad %p is attached."), gamepad);
+        _sntprintf(display_text, display_text_size, _T("[%02d] Gamepad %p is attached."), update_event_number(), gamepad);
         
-        /*
-        gamepad->set_axis_changed_callback(NULL, gamepad_axis_changed);
-        gamepad->set_button_changed_callback(NULL, gamepad_button_changed);
-        */
+        gamepad->set_axis_changed_callback(hwnd, gamepad_axis_changed);
+        gamepad->set_button_changed_callback(hwnd, gamepad_button_changed);
     }
 
-    RedrawWindow(static_cast<HWND>(hwnd), NULL, NULL, RDW_INVALIDATE);
+    RedrawWindow(static_cast<HWND>(hwnd), NULL, NULL, RDW_INVALIDATE|RDW_ERASE);
 }
 
 //-----------------------------------------------------------------------------
