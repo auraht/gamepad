@@ -32,19 +32,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "../Timer.hpp"
 #include <Windows.h>
-#include <unordered_map>
-
-namespace std {
-    template <>
-    struct hash<std::pair<HWND, UINT_PTR> > {
-        std::size_t operator() (std::pair<HWND, UINT_PTR> value) const {
-            size_t hash1 = std::hash<HWND>()(value.first);
-            size_t hash2 = std::hash<UINT_PTR>()(value.second);
-            // basically boost::hash_combine
-            return (hash2 + 0x9e3779b9u + (hash1 << 6) + (hash1 >> 2)) ^ hash1;
-        }
-    };
-}
 
 namespace GP {
     class Timer_Windows : public Timer {
