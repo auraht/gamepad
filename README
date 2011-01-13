@@ -12,3 +12,16 @@ i.e.
  - Handling axis and button events.
 
  - Uses BSD or more flexible license.
+
+The library current has the following limitations:
+
+ - Only buttons from the Button usage page (09) are supported
+ - Only up to 13 specific axes from the Generic Desktop usage page (01) are sup-
+   ported per gamepad. They are:
+    * X (31), Y (32), Z (33), Rx (34), Ry (35), Rz (36),
+    * Vx (41), Vy (42), Vz (43), Vbrx (44), Vbry (45), Vbrz (46), Vno (47)
+ - Axes must be in linear scale.
+ - The default position of each axis should be in ceil((min+max)/2), otherwise
+   you may observe drifting.
+ - Calibration is ignored.
+ - On Windows, axes must not be specified as a usage array.
