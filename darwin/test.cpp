@@ -40,7 +40,7 @@ struct Context {
 };
 
 void gamepad_axis_changed(void*, GP::Gamepad* gamepad, GP::Gamepad::Axis axis, long new_value) {
-    printf("Gamepad %p: Axis %s changed to %ld.\n", gamepad, GP::Gamepad::axis_name(axis), new_value);
+    printf("Gamepad %p: Axis %s changed to %ld.\n", gamepad, GP::Gamepad::axis_name<char>(axis), new_value);
 }
 
 void gamepad_button_changed(void*, GP::Gamepad* gamepad, int button, bool is_pressed) {

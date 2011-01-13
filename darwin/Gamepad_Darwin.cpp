@@ -41,7 +41,7 @@ namespace GP {
         std::tr1::unordered_map<unsigned, IOHIDElementRef>& queue = *static_cast<std::tr1::unordered_map<unsigned, IOHIDElementRef>*>(context);
         IOHIDElementRef element = static_cast<IOHIDElementRef>(const_cast<void*>(value));
         
-        unsigned encoded_usage = IOHIDElementGetUsagePage(element) << 8 | IOHIDElementGetUsage(element);
+        unsigned encoded_usage = IOHIDElementGetUsagePage(element) << 16 | IOHIDElementGetUsage(element);
         queue[encoded_usage] = element;
     }
     

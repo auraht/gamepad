@@ -84,6 +84,9 @@ namespace GP {
         void* _button_changed_self;
         ButtonChangedCallback _button_changed_callback;
         
+        void* _associated_object;
+        void (*_associated_deleter)(void* _object);
+        
         long _centroid[kMaxAxisIndex];
         
     protected:
@@ -104,7 +107,10 @@ namespace GP {
                 _button_changed_callback(_button_changed_self, this, button, is_pressed);
         }
         
-        Gamepad() : _axis_changed_self(NULL), _axis_changed_callback(NULL), _button_changed_self(NULL), _button_changed_callback(NULL) {}
+        Gamepad()
+            : _axis_changed_self(NULL), _axis_changed_callback(NULL),
+              _button_changed_self(NULL), _button_changed_callback(NULL),
+              _associated_object(NULL), _associated_deleter(NULL) {}
         
     public:
         void set_axis_changed_callback(void* self, AxisChangedCallback callback) {
@@ -119,14 +125,41 @@ namespace GP {
         /// Return the upper limit of value the axis can take.
         long axis_bound(Axis axis) const { return _centroid[to_index(axis)]; }
         
-        static const char* axis_name(Axis axis) { 
-            const char* kAxisNames[] = {
-                "X", "Y", "Z", "Rx", "Ry", "Rz",
-                "Vx", "Vy", "Vz", "Vbrx", "Vbry", "Vbrz", "Vno"
-            };
-            return kAxisNames[to_index(axis)];
+        template <typename T>
+        static const T* axis_name(Axis);
+
+        void associate(void* object, void (*deleter)(void*) = NULL) {
+            if (_associated_deleter)
+                _associated_deleter(_associated_object);
+            _associated_object = object;
+            _associated_deleter = deleter;
+        }
+        
+        void* associated_object() const { return _associated_object; }
+        
+        virtual ~Gamepad() {
+            if (_associated_deleter)
+                _associated_deleter(_associated_object);
         }
     };
+
+    template <>
+    inline const char* Gamepad::axis_name(Axis axis) { 
+        const char* kAxisNames[] = {
+            "X", "Y", "Z", "Rx", "Ry", "Rz",
+            "Vx", "Vy", "Vz", "Vbrx", "Vbry", "Vbrz", "Vno"
+        };
+        return kAxisNames[to_index(axis)];
+    }
+
+    template <>
+    inline const wchar_t* Gamepad::axis_name(Axis axis) { 
+        const wchar_t* kAxisNames[] = {
+            L"X", L"Y", L"Z", L"Rx", L"Ry", L"Rz",
+            L"Vx", L"Vy", L"Vz", L"Vbrx", L"Vbry", L"Vbrz", L"Vno"
+        };
+        return kAxisNames[to_index(axis)];
+    }
 }
 
 #endif
