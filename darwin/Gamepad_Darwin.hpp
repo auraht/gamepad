@@ -42,6 +42,7 @@ namespace GP {
     private:
         IOHIDDeviceRef _device;
         
+        static void collect_axis_bounds(const void* element, void* self);
         static void handle_input_value(void* context, IOReturn result, void* sender, IOHIDValueRef value);
         
     public:

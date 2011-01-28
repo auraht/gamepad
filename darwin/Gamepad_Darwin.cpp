@@ -37,24 +37,36 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 
 namespace GP {
-    static void collect_unique_elements(const void *value, void *context) {
-        std::tr1::unordered_map<unsigned, IOHIDElementRef>& queue = *static_cast<std::tr1::unordered_map<unsigned, IOHIDElementRef>*>(context);
-        IOHIDElementRef element = static_cast<IOHIDElementRef>(const_cast<void*>(value));
+    void Gamepad_Darwin::collect_axis_bounds(const void* element_, void* self) {
+        Gamepad_Darwin* gamepad = static_cast<Gamepad_Darwin*>(self);
+        IOHIDElementRef element = static_cast<IOHIDElementRef>(const_cast<void*>(element_));
         
-        unsigned encoded_usage = IOHIDElementGetUsagePage(element) << 16 | IOHIDElementGetUsage(element);
-        queue[encoded_usage] = element;
+        int usage_page = IOHIDElementGetUsagePage(element);
+        int usage = IOHIDElementGetUsage(element);
+        int compiled_usage = compile_axis_usage(usage_page, usage);
+        Axis axis = axis_from_usage(compiled_usage);
+        
+        if (axis != kAxisInvalid) {
+            gamepad->set_bounds_for_axis(axis, IOHIDElementGetLogicalMin(element), IOHIDElementGetLogicalMax(element));
+        }
     }
     
     void Gamepad_Darwin::handle_input_value(void* context, IOReturn, void*, IOHIDValueRef value) {
         Gamepad_Darwin* this_ = static_cast<Gamepad_Darwin*>(context);
         IOHIDElementRef element = IOHIDValueGetElement(value);
-        int usage = IOHIDElementGetUsage(element);
         long new_value = IOHIDValueGetIntegerValue(value);
-        /// TODO: More sophisticated checking for whether a usage is axis or not.
-        if (IOHIDElementGetUsagePage(element) == kHIDPage_GenericDesktop) {
-            this_->handle_axis_change(axis_from_usage(usage), new_value);
+        
+        int usage = IOHIDElementGetUsage(element);
+        int usage_page = IOHIDElementGetUsagePage(element);
+        int compiled_usage = compile_axis_usage(usage_page, usage);
+        Axis axis = axis_from_usage(compiled_usage);
+        
+        
+        if (axis != kAxisInvalid) {
+            this_->handle_axis_change(axis, new_value);
         } else {
-            this_->handle_button_change(usage, new_value);
+            compiled_usage = compile_button_usage(usage_page, usage);
+            this_->handle_button_change(compiled_usage, new_value);
         }
     }
     
@@ -62,29 +74,9 @@ namespace GP {
         std::tr1::unordered_map<unsigned, IOHIDElementRef> _unique_elements;
         
         CFArrayRef elements = IOHIDDeviceCopyMatchingElements(device, NULL, kIOHIDOptionsTypeNone);
-        CFArrayApplyFunction(elements, CFRangeMake(0, CFArrayGetCount(elements)), collect_unique_elements, &_unique_elements);
+        CFArrayApplyFunction(elements, CFRangeMake(0, CFArrayGetCount(elements)), collect_axis_bounds, this);
+        CFRelease(elements);
         
-        CFMutableArrayRef restricted_elements = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
-        for (std::tr1::unordered_map<unsigned, IOHIDElementRef>::const_iterator cit = _unique_elements.begin(); cit != _unique_elements.end(); ++ cit) {
-            IOHIDElementRef element = cit->second;
-            
-            CFTypeRef key = CFSTR(kIOHIDElementCookieKey);
-            IOHIDElementCookie cookie = IOHIDElementGetCookie(element);
-            CFTypeRef value = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &cookie);
-            CFDictionaryRef dictionary = CFDictionaryCreate(kCFAllocatorDefault, &key, &value, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-            CFRelease(value);
-            
-            if (IOHIDElementGetUsagePage(element) == kHIDPage_GenericDesktop) {
-                Axis axis = axis_from_usage(IOHIDElementGetUsage(element));
-                this->set_bounds_for_axis(axis, IOHIDElementGetLogicalMin(element), IOHIDElementGetLogicalMax(element));
-            }
-            
-            CFArrayAppendValue(restricted_elements, dictionary);
-            CFRelease(dictionary);
-        }
-        IOHIDDeviceSetInputValueMatchingMultiple(device, restricted_elements);
-        CFRelease(restricted_elements);
-
         IOHIDDeviceRegisterInputValueCallback(device, Gamepad_Darwin::handle_input_value, this);
     }
 }

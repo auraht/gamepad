@@ -37,11 +37,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <climits>
 
 namespace GP {
-    typedef unsigned EncodedUsage;
-    
     class Gamepad {        
     public:
         enum Axis {
+            kAxisInvalid = -1,
             kAxisX = 0x30,
             kAxisY,
             kAxisZ,
@@ -62,20 +61,34 @@ namespace GP {
         
     protected:
         static const int kMaxAxisIndex = 13;
-
+        
+        // combine the usage page and usage into a single number for axis.
+        static inline int compile_axis_usage(int usage_page, int usage) {
+            return (usage_page - 1) << 16 | usage;
+        }
+        
+        // combine the usage page and usage into a single number of button.
+        static inline int compile_button_usage(int usage_page, int usage) {
+            return (usage_page - 9) << 16 | usage;
+        }
+        
+        // convert an axis to an array index.
         static inline int to_index(Axis axis) {
             if (kAxisX <= axis && axis <= kAxisRz)
                 return axis - kAxisX;
             else if (kAxisVx <= axis && axis <= kAxisVno)
                 return axis + 6 - kAxisVx;
             else
-                return kMaxAxisIndex-1;
+                return -1;
         }
+        
+        // convert the compiled usage into an Axis. 
+        // returns kAxisInvalid if the compiled usage is not an axis we can recognize.
         static inline Axis axis_from_usage(int usage) {
             if ((kAxisX <= usage && usage <= kAxisRz) || (kAxisVx <= usage && usage <= kAxisVno))
                 return static_cast<Axis>(usage);
             else
-                return kAxisVno;
+                return kAxisInvalid;
         }
 
     private:                
@@ -93,13 +106,15 @@ namespace GP {
         void set_bounds_for_axis(Axis axis, long minimum, long maximum) {
             int index = to_index(axis);
             /// TODO: Deal with drifting?
-            _centroid[index] = (maximum + minimum + 1) / 2;
+            if (index >= 0)
+                _centroid[index] = (maximum + minimum + 1) / 2;
         }
 
         void handle_axis_change(Axis axis, long new_value) {
             if (_axis_changed_callback) {
                 int index = to_index(axis);
-                _axis_changed_callback(_axis_changed_self, this, axis, new_value - _centroid[index]);
+                if (index >= 0)
+                    _axis_changed_callback(_axis_changed_self, this, axis, new_value - _centroid[index]);
             }
         }
         void handle_button_change(int button, bool is_pressed) {
@@ -123,7 +138,10 @@ namespace GP {
         }
         
         /// Return the upper limit of value the axis can take.
-        long axis_bound(Axis axis) const { return _centroid[to_index(axis)]; }
+        long axis_bound(Axis axis) const {
+            int index = to_index(axis);
+            return index >= 0 ? _centroid[index] : 0;
+        }
         
         template <typename T>
         static const T* axis_name(Axis);
@@ -149,7 +167,8 @@ namespace GP {
             "X", "Y", "Z", "Rx", "Ry", "Rz",
             "Vx", "Vy", "Vz", "Vbrx", "Vbry", "Vbrz", "Vno"
         };
-        return kAxisNames[to_index(axis)];
+        int index = to_index(axis);
+        return index >= 0 ? kAxisNames[index] : "";
     }
 
     template <>
@@ -158,7 +177,8 @@ namespace GP {
             L"X", L"Y", L"Z", L"Rx", L"Ry", L"Rz",
             L"Vx", L"Vy", L"Vz", L"Vbrx", L"Vbry", L"Vbrz", L"Vno"
         };
-        return kAxisNames[to_index(axis)];
+        int index = to_index(axis);
+        return index >= 0 ? kAxisNames[index] : L"";
     }
 }
 
