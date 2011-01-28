@@ -37,8 +37,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 
 namespace GP {
+    struct Ctx {
+        Gamepad_Darwin* gamepad;
+        CFMutableArrayRef restricted_elements;
+    };
+    
     void Gamepad_Darwin::collect_axis_bounds(const void* element_, void* self) {
-        Gamepad_Darwin* gamepad = static_cast<Gamepad_Darwin*>(self);
+        Ctx* ctx = static_cast<Ctx*>(self);
         IOHIDElementRef element = static_cast<IOHIDElementRef>(const_cast<void*>(element_));
         
         int usage_page = IOHIDElementGetUsagePage(element);
@@ -46,8 +51,23 @@ namespace GP {
         int compiled_usage = compile_axis_usage(usage_page, usage);
         Axis axis = axis_from_usage(compiled_usage);
         
+        
         if (axis != kAxisInvalid) {
-            gamepad->set_bounds_for_axis(axis, IOHIDElementGetLogicalMin(element), IOHIDElementGetLogicalMax(element));
+            ctx->gamepad->set_bounds_for_axis(axis, IOHIDElementGetLogicalMin(element), IOHIDElementGetLogicalMax(element));
+        } else if (IOHIDElementGetType(element) != kIOHIDElementTypeInput_Button) {
+//            printf("%x %x -> 0x%x\n", usage_page, usage, IOHIDElementGetType(element));
+            element = NULL;
+        }
+        
+        if (element != NULL) {
+            CFTypeRef key = CFSTR(kIOHIDElementCookieKey);
+            IOHIDElementCookie cookie = IOHIDElementGetCookie(element);
+            CFTypeRef value = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &cookie);
+            CFDictionaryRef dictionary = CFDictionaryCreate(kCFAllocatorDefault, &key, &value, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
+            CFRelease(value);
+            
+            CFArrayAppendValue(ctx->restricted_elements, dictionary);
+            CFRelease(dictionary);
         }
     }
     
@@ -71,11 +91,15 @@ namespace GP {
     }
     
     Gamepad_Darwin::Gamepad_Darwin(IOHIDDeviceRef device) : Gamepad(), _device(device) {
-        std::tr1::unordered_map<unsigned, IOHIDElementRef> _unique_elements;
-        
         CFArrayRef elements = IOHIDDeviceCopyMatchingElements(device, NULL, kIOHIDOptionsTypeNone);
-        CFArrayApplyFunction(elements, CFRangeMake(0, CFArrayGetCount(elements)), collect_axis_bounds, this);
+        CFMutableArrayRef restricted_elements = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+        
+        Ctx ctx = {this, restricted_elements};
+        CFArrayApplyFunction(elements, CFRangeMake(0, CFArrayGetCount(elements)), collect_axis_bounds, &ctx);
         CFRelease(elements);
+        
+        IOHIDDeviceSetInputValueMatchingMultiple(device, restricted_elements);
+        CFRelease(restricted_elements);
         
         IOHIDDeviceRegisterInputValueCallback(device, Gamepad_Darwin::handle_input_value, this);
     }
