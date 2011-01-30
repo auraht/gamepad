@@ -13,9 +13,8 @@ i.e.
 
  - Uses BSD or more flexible license.
 
-The library current has the following limitations:
+The library currently has the following limitations:
 
- - Only buttons from the Button usage page (09) are supported
  - Only up to 13 specific axes from the Generic Desktop usage page (01) are sup-
    ported per gamepad. They are:
     * X (31), Y (32), Z (33), Rx (34), Ry (35), Rz (36),
@@ -25,3 +24,6 @@ The library current has the following limitations:
    you may observe drifting.
  - Calibration is ignored.
  - On Windows, axes must not be specified as a usage array.
+
+C++0x is required to compile the library. Only g++ 4.5 or above, or Visual C++
+2010 are supported.

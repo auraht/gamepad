@@ -31,9 +31,9 @@
 
 OBJECTS=Gamepad_Darwin.o GamepadChangedObserver_Darwin.o Timer_Darwin.o
 
-CXX=g++
+CXX=g++-4.5
 CPPFLAGS=
-CXXFLAGS=-Wall -Wextra -O3
+CXXFLAGS=-std=c++0x -pedantic -Wall -Wextra -O3
 LDFLAGS=-framework CoreFoundation -framework IOKit -dynamiclib 
 
 .PHONY: all clean

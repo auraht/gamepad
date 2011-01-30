@@ -39,13 +39,13 @@ struct Context {
     bool quit;
 };
 
-void gamepad_axis_changed(void*, GP::Gamepad* gamepad, GP::Gamepad::Axis axis, long new_value) {
-    if (axis != GP::Gamepad::kAxisZ)
-        printf("Gamepad %p: Axis %s changed to %ld.\n", gamepad, GP::Gamepad::axis_name<char>(axis), new_value);
+void gamepad_axis_changed(void*, GP::Gamepad* gamepad, GP::Axis axis, long new_value) {
+    if (axis != GP::Axis::Z)
+        printf("Gamepad %p: Axis %s changed to %ld.\n", gamepad, GP::name<char>(axis), new_value);
 }
 
-void gamepad_button_changed(void*, GP::Gamepad* gamepad, int button, bool is_pressed) {
-    printf("Gamepad %p: Button %d is %s.\n", gamepad,button, is_pressed ? "down" : "up");
+void gamepad_button_changed(void*, GP::Gamepad* gamepad, GP::Button button, bool is_pressed) {
+    printf("Gamepad %p: Button %d is %s.\n", gamepad, button, is_pressed ? "down" : "up");
 }
 
 

@@ -48,14 +48,11 @@ namespace GP {
         
         int usage_page = IOHIDElementGetUsagePage(element);
         int usage = IOHIDElementGetUsage(element);
-        int compiled_usage = compile_axis_usage(usage_page, usage);
-        Axis axis = axis_from_usage(compiled_usage);
+        Axis axis = axis_from_usage(usage_page, usage);
         
-        
-        if (axis != kAxisInvalid) {
+        if (axis != Axis::invalid) {
             ctx->gamepad->set_bounds_for_axis(axis, IOHIDElementGetLogicalMin(element), IOHIDElementGetLogicalMax(element));
         } else if (IOHIDElementGetType(element) != kIOHIDElementTypeInput_Button) {
-//            printf("%x %x -> 0x%x\n", usage_page, usage, IOHIDElementGetType(element));
             element = NULL;
         }
         
@@ -78,19 +75,22 @@ namespace GP {
         
         int usage = IOHIDElementGetUsage(element);
         int usage_page = IOHIDElementGetUsagePage(element);
-        int compiled_usage = compile_axis_usage(usage_page, usage);
-        Axis axis = axis_from_usage(compiled_usage);
+        Axis axis = axis_from_usage(usage_page, usage);
         
-        
-        if (axis != kAxisInvalid) {
-            this_->handle_axis_change(axis, new_value);
+        if (axis != Axis::invalid) {
+            this_->set_axis_value(axis, new_value);
         } else {
-            compiled_usage = compile_button_usage(usage_page, usage);
-            this_->handle_button_change(compiled_usage, new_value);
+            Button button = button_from_usage(usage_page, usage);
+            this_->handle_button_change(button, new_value);
         }
     }
     
-    Gamepad_Darwin::Gamepad_Darwin(IOHIDDeviceRef device) : Gamepad(), _device(device) {
+    void Gamepad_Darwin::handle_report(void* context, IOReturn, void*, IOHIDReportType, uint32_t, uint8_t*, CFIndex) {
+        Gamepad_Darwin* this_ = static_cast<Gamepad_Darwin*>(context);
+        this_->handle_axes_change();
+    }
+        
+    Gamepad_Darwin::Gamepad_Darwin(IOHIDDeviceRef device) : Gamepad(), _device{device} {
         CFArrayRef elements = IOHIDDeviceCopyMatchingElements(device, NULL, kIOHIDOptionsTypeNone);
         CFMutableArrayRef restricted_elements = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
         
@@ -102,5 +102,6 @@ namespace GP {
         CFRelease(restricted_elements);
         
         IOHIDDeviceRegisterInputValueCallback(device, Gamepad_Darwin::handle_input_value, this);
+        IOHIDDeviceRegisterInputReportCallback(device, NULL, 0, Gamepad_Darwin::handle_report, this);
     }
 }

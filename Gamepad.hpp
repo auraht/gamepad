@@ -37,60 +37,37 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <climits>
 
 namespace GP {
+    enum class Axis {
+        invalid = -1,
+        X, Y, Z, Rx, Ry, Rz,
+        Vx, Vy, Vz, Vbrx, Vbry, Vbrz, Vno,
+        count
+    };
+    
+    enum class Button {
+        _1 = 1, _2, _3, _4, _5, _6, _7,
+        _8, _9, _10, _11, _12, _13, _14, _15,
+        _16, _17, _18, _19, _20, _21, _22, _23,
+        _24, _25, _26, _27, _28, _29, _30, _31,
+        ConsumerMenu = 3<<16 | 0x40,
+        ConsumerPlayPause = 3<<16 | 0xcd,
+        ConsumerVolumeIncrease = 3<<16 | 0xe9,
+        ConsumerVolumeDecrease = 3<<16 | 0xea
+    };
+        
+    static Axis axis_from_usage(int usage_page, int usage);
+    static Button button_from_usage(int usage_page, int usage);
+    static bool valid(Axis axis);
+
+    template <typename T>
+    static const T* name(Axis);
+
+
     class Gamepad {        
     public:
-        enum Axis {
-            kAxisInvalid = -1,
-            kAxisX = 0x30,
-            kAxisY,
-            kAxisZ,
-            kAxisRx,
-            kAxisRy,
-            kAxisRz,
-            kAxisVx = 0x40,
-            kAxisVy,
-            kAxisVz,
-            kAxisVbrx,
-            kAxisVbry,
-            kAxisVbrz,
-            kAxisVno
-        };
-        
         typedef void (*AxisChangedCallback)(void* self, Gamepad* gamepad, Axis axis, long new_value);
-        typedef void (*ButtonChangedCallback)(void* self, Gamepad* gamepad, int button, bool is_pressed);
+        typedef void (*ButtonChangedCallback)(void* self, Gamepad* gamepad, Button button, bool is_pressed);
         
-    protected:
-        static const int kMaxAxisIndex = 13;
-        
-        // combine the usage page and usage into a single number for axis.
-        static inline int compile_axis_usage(int usage_page, int usage) {
-            return (usage_page - 1) << 16 | usage;
-        }
-        
-        // combine the usage page and usage into a single number of button.
-        static inline int compile_button_usage(int usage_page, int usage) {
-            return (usage_page - 9) << 16 | usage;
-        }
-        
-        // convert an axis to an array index.
-        static inline int to_index(Axis axis) {
-            if (kAxisX <= axis && axis <= kAxisRz)
-                return axis - kAxisX;
-            else if (kAxisVx <= axis && axis <= kAxisVno)
-                return axis + 6 - kAxisVx;
-            else
-                return -1;
-        }
-        
-        // convert the compiled usage into an Axis. 
-        // returns kAxisInvalid if the compiled usage is not an axis we can recognize.
-        static inline Axis axis_from_usage(int usage) {
-            if ((kAxisX <= usage && usage <= kAxisRz) || (kAxisVx <= usage && usage <= kAxisVno))
-                return static_cast<Axis>(usage);
-            else
-                return kAxisInvalid;
-        }
-
     private:                
         void* _axis_changed_self;
         AxisChangedCallback _axis_changed_callback;
@@ -100,86 +77,34 @@ namespace GP {
         void* _associated_object;
         void (*_associated_deleter)(void* _object);
         
-        long _centroid[kMaxAxisIndex];
+        long _centroid[static_cast<int>(Axis::count)];
+        long _cached_axis_values[static_cast<int>(Axis::count)];
         
     protected:
-        void set_bounds_for_axis(Axis axis, long minimum, long maximum) {
-            int index = to_index(axis);
-            /// TODO: Deal with drifting?
-            if (index >= 0)
-                _centroid[index] = (maximum + minimum + 1) / 2;
-        }
-
-        void handle_axis_change(Axis axis, long new_value) {
-            if (_axis_changed_callback) {
-                int index = to_index(axis);
-                if (index >= 0)
-                    _axis_changed_callback(_axis_changed_self, this, axis, new_value - _centroid[index]);
-            }
-        }
-        void handle_button_change(int button, bool is_pressed) {
-            if (_button_changed_callback)
-                _button_changed_callback(_button_changed_self, this, button, is_pressed);
-        }
-        
-        Gamepad()
-            : _axis_changed_self(NULL), _axis_changed_callback(NULL),
-              _button_changed_self(NULL), _button_changed_callback(NULL),
-              _associated_object(NULL), _associated_deleter(NULL) {}
+        void set_bounds_for_axis(Axis axis, long minimum, long maximum);
+        void handle_axes_change();
+        void handle_button_change(Button button, bool is_pressed);
+        void set_axis_value(Axis axis, long value);
         
     public:
-        void set_axis_changed_callback(void* self, AxisChangedCallback callback) {
-            _axis_changed_self = self;
-            _axis_changed_callback = callback;
-        }
-        void set_button_changed_callback(void* self, ButtonChangedCallback callback) {
-            _button_changed_self = self;
-            _button_changed_callback = callback;
-        }
+        Gamepad() : _axis_changed_self{NULL}, _axis_changed_callback{NULL},
+                    _button_changed_self{NULL}, _button_changed_callback{NULL},
+                    _associated_object{NULL}, _associated_deleter{NULL}, 
+                    _centroid{0}, _cached_axis_values{0} {}
+    
+        void set_axis_changed_callback(void* self, AxisChangedCallback callback);
+        void set_button_changed_callback(void* self, ButtonChangedCallback callback);
         
         /// Return the upper limit of value the axis can take.
-        long axis_bound(Axis axis) const {
-            int index = to_index(axis);
-            return index >= 0 ? _centroid[index] : 0;
-        }
+        long axis_bound(Axis axis) const;
         
-        template <typename T>
-        static const T* axis_name(Axis);
-
-        void associate(void* object, void (*deleter)(void*) = NULL) {
-            if (_associated_deleter)
-                _associated_deleter(_associated_object);
-            _associated_object = object;
-            _associated_deleter = deleter;
-        }
+        void associate(void* object, void (*deleter)(void*) = NULL);        
+        void* associated_object() const;
         
-        void* associated_object() const { return _associated_object; }
-        
-        virtual ~Gamepad() {
-            if (_associated_deleter)
-                _associated_deleter(_associated_object);
-        }
+        virtual ~Gamepad();
     };
-
-    template <>
-    inline const char* Gamepad::axis_name(Axis axis) { 
-        const char* kAxisNames[] = {
-            "X", "Y", "Z", "Rx", "Ry", "Rz",
-            "Vx", "Vy", "Vz", "Vbrx", "Vbry", "Vbrz", "Vno"
-        };
-        int index = to_index(axis);
-        return index >= 0 ? kAxisNames[index] : "";
-    }
-
-    template <>
-    inline const wchar_t* Gamepad::axis_name(Axis axis) { 
-        const wchar_t* kAxisNames[] = {
-            L"X", L"Y", L"Z", L"Rx", L"Ry", L"Rz",
-            L"Vx", L"Vy", L"Vz", L"Vbrx", L"Vbry", L"Vbrz", L"Vno"
-        };
-        int index = to_index(axis);
-        return index >= 0 ? kAxisNames[index] : L"";
-    }
 }
+
+#include "Gamepad.inc.cpp"
 
 #endif

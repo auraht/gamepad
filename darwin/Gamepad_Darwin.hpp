@@ -43,7 +43,9 @@ namespace GP {
         IOHIDDeviceRef _device;
         
         static void collect_axis_bounds(const void* element, void* self);
+        
         static void handle_input_value(void* context, IOReturn result, void* sender, IOHIDValueRef value);
+        static void handle_report(void* context, IOReturn, void*, IOHIDReportType, uint32_t, uint8_t*, CFIndex);
         
     public:
         Gamepad_Darwin(IOHIDDeviceRef device);
