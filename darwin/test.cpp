@@ -39,6 +39,11 @@ struct Context {
     bool quit;
 };
 
+void gamepad_axis_state_changed(void*, GP::Gamepad* gamepad, GP::Axis axis, GP::AxisState state) {
+    if (axis != GP::Axis::Z)
+        printf("Gamepad %p: Axis %s %s.\n", gamepad, GP::name<char>(axis), state == GP::AxisState::start_moving ? "start moving" : "stop moving");
+}
+
 void gamepad_axis_changed(void*, GP::Gamepad* gamepad, GP::Axis axis, long new_value) {
     if (axis != GP::Axis::Z)
         printf("Gamepad %p: Axis %s changed to %ld.\n", gamepad, GP::name<char>(axis), new_value);
@@ -60,6 +65,7 @@ void gamepad_state_changed(void* self, GP::Gamepad* gamepad, GP::GamepadChangedO
         printf("Gamepad %p is attached.\n", gamepad);
         
         gamepad->set_axis_changed_callback(NULL, gamepad_axis_changed);
+        gamepad->set_axis_state_changed_callback(NULL, gamepad_axis_state_changed);
         gamepad->set_button_changed_callback(NULL, gamepad_button_changed);
     }
 }

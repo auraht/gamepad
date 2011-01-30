@@ -49,10 +49,15 @@ namespace GP {
         _8, _9, _10, _11, _12, _13, _14, _15,
         _16, _17, _18, _19, _20, _21, _22, _23,
         _24, _25, _26, _27, _28, _29, _30, _31,
-        ConsumerMenu = 3<<16 | 0x40,
-        ConsumerPlayPause = 3<<16 | 0xcd,
-        ConsumerVolumeIncrease = 3<<16 | 0xe9,
-        ConsumerVolumeDecrease = 3<<16 | 0xea
+        menu = 3<<16 | 0x40,
+        play_pause = 3<<16 | 0xcd,
+        volume_increase = 3<<16 | 0xe9,
+        volume_decrease = 3<<16 | 0xea
+    };
+    
+    enum class AxisState {
+        stop_moving = 0,
+        start_moving
     };
         
     static Axis axis_from_usage(int usage_page, int usage);
@@ -63,22 +68,27 @@ namespace GP {
     static const T* name(Axis);
 
 
-    class Gamepad {        
+    class Gamepad {
     public:
         typedef void (*AxisChangedCallback)(void* self, Gamepad* gamepad, Axis axis, long new_value);
         typedef void (*ButtonChangedCallback)(void* self, Gamepad* gamepad, Button button, bool is_pressed);
+        typedef void (*AxisStateChangedCallback)(void* self, Gamepad* gamepad, Axis axis, AxisState state);
         
     private:                
         void* _axis_changed_self;
         AxisChangedCallback _axis_changed_callback;
         void* _button_changed_self;
         ButtonChangedCallback _button_changed_callback;
+        void* _axis_state_self;
+        AxisStateChangedCallback _axis_state_callback;
+        
         
         void* _associated_object;
         void (*_associated_deleter)(void* _object);
         
         long _centroid[static_cast<int>(Axis::count)];
         long _cached_axis_values[static_cast<int>(Axis::count)];
+        AxisState _old_axis_state[static_cast<int>(Axis::count)];
         
     protected:
         void set_bounds_for_axis(Axis axis, long minimum, long maximum);
@@ -89,10 +99,12 @@ namespace GP {
     public:
         Gamepad() : _axis_changed_self{NULL}, _axis_changed_callback{NULL},
                     _button_changed_self{NULL}, _button_changed_callback{NULL},
+                    _axis_state_self{NULL}, _axis_state_callback{NULL},
                     _associated_object{NULL}, _associated_deleter{NULL}, 
-                    _centroid{0}, _cached_axis_values{0} {}
+                    _centroid{0}, _cached_axis_values{0}, _old_axis_state{AxisState::stop_moving} {}
     
         void set_axis_changed_callback(void* self, AxisChangedCallback callback);
+        void set_axis_state_changed_callback(void* self, AxisStateChangedCallback callback);
         void set_button_changed_callback(void* self, ButtonChangedCallback callback);
         
         /// Return the upper limit of value the axis can take.

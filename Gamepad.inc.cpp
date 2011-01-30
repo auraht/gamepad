@@ -82,11 +82,21 @@ namespace GP {
     }
 
     inline void Gamepad::handle_axes_change() {
+        bool has_state_callback = _axis_state_callback != NULL;
+        
         if (_axis_changed_callback) {
             for (int i = 0; i < static_cast<int>(Axis::count); ++ i) {
                 long value = _cached_axis_values[i] - _centroid[i];
-                if (value != 0)
+                if (value != 0) {
+                    if (has_state_callback && _old_axis_state[i] != AxisState::start_moving) {
+                        _old_axis_state[i] = AxisState::start_moving;
+                        _axis_state_callback(_axis_state_self, this, static_cast<Axis>(i), AxisState::start_moving);
+                    }
                     _axis_changed_callback(_axis_changed_self, this, static_cast<Axis>(i), value);
+                } else if (has_state_callback && _old_axis_state[i] != AxisState::stop_moving) {
+                    _old_axis_state[i] = AxisState::stop_moving;
+                    _axis_state_callback(_axis_state_self, this, static_cast<Axis>(i), AxisState::stop_moving);
+                }
             }
         }
     }
@@ -99,6 +109,10 @@ namespace GP {
     inline void Gamepad::set_axis_changed_callback(void* self, AxisChangedCallback callback) {
         _axis_changed_self = self;
         _axis_changed_callback = callback;
+    }
+    inline void Gamepad::set_axis_state_changed_callback(void* self, AxisStateChangedCallback callback) {
+        _axis_state_self = self;
+        _axis_state_callback = callback;
     }
     inline void Gamepad::set_button_changed_callback(void* self, ButtonChangedCallback callback) {
         _button_changed_self = self;
