@@ -56,10 +56,10 @@ namespace GP {
                 if (wparam == GIDC_ARRIVAL) {
                     std::tr1::shared_ptr<Gamepad_Windows> gamepad (new Gamepad_Windows(hdevice));
                     this_->_active_devices.insert(std::make_pair(hdevice, gamepad));
-                    this_->handle_event(gamepad.get(), kAttached);
+                    this_->handle_event(gamepad.get(), GamepadState::attached);
                 } else if (wparam == GIDC_REMOVAL) {
                     auto it = this_->_active_devices.find(hdevice);
-                    this_->handle_event(it->second.get(), kDetaching);
+                    this_->handle_event(it->second.get(), GamepadState::detaching);
                     this_->_active_devices.erase(it);
                 }
                 break;

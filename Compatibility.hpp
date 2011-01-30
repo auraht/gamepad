@@ -1,6 +1,6 @@
 /*
  
-GamepadChangedObserver.hpp ... Observe if a gamepad device has been changed.
+Compatibility.hpp ... Compatibility macros.
 
 Copyright (c) 2011  aura Human Technology Ltd.  <rnd@auraht.com>
 All rights reserved.
@@ -30,53 +30,23 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef GAMEPAD_CHANGED_OBSERVER_HPP_rskkt3ru5raa714i
-#define GAMEPAD_CHANGED_OBSERVER_HPP_rskkt3ru5raa714i 1
+#ifndef COMPATIBILITY_HPP_tgk9yntqol1pp66r
+#define COMPATIBILITY_HPP_tgk9yntqol1pp66r
 
-#include "Compatibility.hpp"
+#if _WIN32
+#ifdef _WINDLL
+#define EXPORT __declspec(dllexport)
+#else
+#define EXPORT __declspec(dllimport)
+#endif
+#else
+#define EXPORT
+#endif
 
-
-namespace GP {
-    class Gamepad;
-
-    ENUM_CLASS GamepadState {
-        attached,
-        detaching
-    };
-
-    class GamepadChangedObserver {
-    public:        
-    
-        typedef void (*Callback)(void* self, Gamepad* gamepad, GamepadState state);
-    
-    private:
-        void* _self;
-        Callback _callback;
-        
-    protected:
-        virtual void observe_impl() = 0;
-        
-        void handle_event(Gamepad* gamepad, GamepadState state) const {
-            if (_callback)
-                _callback(_self, gamepad, state);
-        }
-        
-        GamepadChangedObserver(void* self, Callback callback)
-            : _self(self), _callback(callback) {}
-        
-        static EXPORT GamepadChangedObserver* create_impl(void* self, Callback callback, void* eventloop);
-        
-    public:
-        // remember to use 'delete' to kill the observer.
-        static GamepadChangedObserver* create(void* self, Callback callback, void* eventloop) {
-            GamepadChangedObserver* retval = create_impl(self, callback, eventloop);
-            retval->observe_impl();
-            return retval;
-        }
-        
-        virtual ~GamepadChangedObserver() {}
-    };
-    
-}
+#if __GNUC__
+#define ENUM_CLASS enum class
+#else
+#define ENUM_CLASS enum
+#endif
 
 #endif

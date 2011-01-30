@@ -46,7 +46,7 @@ static const struct HIDDLL {
     MACRO(HidP_GetSpecificValueCaps); \
     MACRO(HidP_GetUsageValue); \
     MACRO(HidP_MaxUsageListLength); \
-    MACRO(HidP_GetUsages)
+    MACRO(HidP_GetUsagesEx)
 
 
     HID_PERFORM(HID_DECLARE);
@@ -71,8 +71,6 @@ static const struct HIDDLL {
 
 namespace GP {
     Gamepad_Windows::Gamepad_Windows(HANDLE hdevice) : Gamepad(), _hdevice(hdevice) {
-        memset(_previous_axis_values, 0, sizeof(_previous_axis_values));
-
         UINT buf_size;
         GetRawInputDeviceInfo(hdevice, RIDI_PREPARSEDDATA, NULL, &buf_size);
         _preparsed_buf.resize(buf_size);
@@ -87,55 +85,68 @@ namespace GP {
         ULONG actual_value_caps_count = caps.NumberInputValueCaps;
         hid.HidP_GetValueCaps(HidP_Input, &value_caps[0], &actual_value_caps_count, _preparsed);
 
-        std::unordered_set<Axis> valid_axes;
-        std::for_each(value_caps.cbegin(), value_caps.cend(), [this, &valid_axes](const HIDP_VALUE_CAPS& k) {
-            if (k.UsagePage == HID_USAGE_PAGE_GENERIC) {
-                Axis axis = axis_from_usage(k.NotRange.Usage);
-                valid_axes.insert(axis);
+        std::for_each(value_caps.cbegin(), value_caps.cend(), [this](const HIDP_VALUE_CAPS& k) {
+            Axis axis = axis_from_usage(k.UsagePage, k.NotRange.Usage);
+            if (valid(axis)) {
                 this->set_bounds_for_axis(axis, k.LogicalMin, k.LogicalMax);
-                _previous_axis_values[to_index(axis)] = this->axis_bound(axis);
+                _AxisUsage axis_usage = {axis, k.UsagePage, k.NotRange.Usage};
+                _valid_axes.push_back(axis_usage);
             }
         });
-        std::copy(valid_axes.cbegin(), valid_axes.cend(), std::back_inserter(_axes));
 
-        _buttons_count = hid.HidP_MaxUsageListLength(HidP_Input, HID_USAGE_PAGE_BUTTON, _preparsed);
+        _buttons_count = hid.HidP_MaxUsageListLength(HidP_Input, 0, _preparsed);
     }
 
     void Gamepad_Windows::handle_raw_input(const RAWHID& input) {
         auto report = reinterpret_cast<PCHAR>(const_cast<BYTE*>(input.bRawData));
         auto report_size = input.dwSizeHid;
         if (input.dwCount != 1) {
-            /// TODO: Handle error when the report count is not 1.
+            //## TODO: Handle error when the report count is not 1.
         }
 
-        std::for_each(_axes.cbegin(), _axes.cend(), [this, report, report_size](Axis axis) {
-            ULONG usage_value = 0;
-            if (hid.HidP_GetUsageValue(HidP_Input, HID_USAGE_PAGE_GENERIC, 0, axis, &usage_value, _preparsed, report, report_size) == HIDP_STATUS_SUCCESS) {
-                int index = to_index(axis);
-                if (_previous_axis_values[index] != usage_value) {
-                    this->handle_axis_change(axis, usage_value);
-                    _previous_axis_values[index] = usage_value;
-                }
+        std::for_each(_valid_axes.cbegin(), _valid_axes.cend(), [this, report, report_size](_AxisUsage axis_usage) {
+            ULONG result = 0;
+            if (hid.HidP_GetUsageValue(HidP_Input, axis_usage.usage_page, 0, axis_usage.usage, &result, _preparsed, report, report_size) == HIDP_STATUS_SUCCESS) {
+                this->set_axis_value(axis_usage.axis, result);
             }
         });
 
-        std::vector<USAGE> active_buttons_vector (_buttons_count);
+        this->handle_axes_change();
+
+        std::vector<USAGE_AND_PAGE> active_buttons_vector (_buttons_count);
         ULONG active_buttons_count = _buttons_count;
-        hid.HidP_GetUsages(HidP_Input, HID_USAGE_PAGE_BUTTON, 0, &active_buttons_vector[0], &active_buttons_count, _preparsed, report, report_size);
-        std::unordered_set<USAGE> active_buttons (active_buttons_vector.cbegin(), active_buttons_vector.cbegin() + active_buttons_count);
 
-        std::for_each(active_buttons.cbegin(), active_buttons.cend(), [this](USAGE usage) {
-            if (_previous_active_buttons.find(usage) == _previous_active_buttons.cend()) {
-                this->handle_button_change(usage, true);
+        hid.HidP_GetUsagesEx(HidP_Input, 0, &active_buttons_vector[0], &active_buttons_count, _preparsed, report, report_size);
+
+        std::unordered_set<Button> active_buttons;
+        std::transform(active_buttons_vector.cbegin(), active_buttons_vector.cbegin() + active_buttons_count,
+            std::inserter(active_buttons, active_buttons.end()),
+            [](USAGE_AND_PAGE usage) { return button_from_usage(usage.UsagePage, usage.Usage); }
+        );
+
+        auto prev_end = _previous_active_buttons.cend();
+        auto active_end = active_buttons.cend();
+        std::for_each(active_buttons.cbegin(), active_buttons.cend(), [this, prev_end](Button button) {
+            if (_previous_active_buttons.find(button) == prev_end) {
+                this->handle_button_change(button, true);
             }
         });
-        std::for_each(_previous_active_buttons.cbegin(), _previous_active_buttons.cend(), [this, &active_buttons](USAGE usage) {
-            if (active_buttons.find(usage) == active_buttons.cend()) {
-                this->handle_button_change(usage, false);
+        std::for_each(_previous_active_buttons.cbegin(), _previous_active_buttons.cend(), [this, &active_buttons, active_end](Button button) {
+            if (active_buttons.find(button) == active_end) {
+                this->handle_button_change(button, false);
             }
         });
 
         _previous_active_buttons.swap(active_buttons);
     }
+
+    bool Gamepad_Windows::send(int usage_page, int usage, const void* content, size_t content_size) {
+        return false;
+    }
+
+    bool Gamepad_Windows::retrieve(int usage_page, int usage, void* buffer, size_t buffer_size) {
+        return false;
+    }
+
 }
 

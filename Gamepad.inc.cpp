@@ -31,6 +31,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include <functional>
+#include <cstring>
 
 namespace std {
     template <>
@@ -70,6 +71,15 @@ namespace GP {
         return static_cast<Button>((usage_page - 9) << 16 | usage);
     }
     
+    inline Gamepad::Gamepad() : _axis_changed_self(NULL), _axis_changed_callback(NULL),
+                    _button_changed_self(NULL), _button_changed_callback(NULL),
+                    _axis_state_self(NULL), _axis_state_callback(NULL),
+                    _associated_object(NULL), _associated_deleter(NULL) {
+        memset(_centroid, 0, sizeof(_centroid));
+        memset(_cached_axis_values, 0, sizeof(_centroid));
+        memset(_old_axis_state, 0, sizeof(_centroid));
+    }
+
     inline void Gamepad::set_bounds_for_axis(Axis axis, long minimum, long maximum) {
         if (valid(axis)) {
             _cached_axis_values[static_cast<int>(axis)] = _centroid[static_cast<int>(axis)] = (maximum + minimum + 1) / 2;
@@ -161,6 +171,7 @@ namespace GP {
         return valid(axis) ? kAxisNames[static_cast<int>(axis)] : L"";
     }
 
+#if __GNUC__
     template <>
     inline const char16_t* name(Axis axis) { 
         const char16_t* kAxisNames[] = {
@@ -178,5 +189,6 @@ namespace GP {
         };
         return valid(axis) ? kAxisNames[static_cast<int>(axis)] : U"";
     }
+#endif
 
 }

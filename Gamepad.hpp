@@ -35,16 +35,17 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <utility>
 #include <climits>
+#include "Compatibility.hpp"
 
 namespace GP {
-    enum class Axis {
+    ENUM_CLASS Axis {
         invalid = -1,
         X, Y, Z, Rx, Ry, Rz,
         Vx, Vy, Vz, Vbrx, Vbry, Vbrz, Vno,
         count
     };
     
-    enum class Button {
+    ENUM_CLASS Button {
         _1 = 1, _2, _3, _4, _5, _6, _7,
         _8, _9, _10, _11, _12, _13, _14, _15,
         _16, _17, _18, _19, _20, _21, _22, _23,
@@ -55,7 +56,7 @@ namespace GP {
         volume_decrease = 3<<16 | 0xea
     };
     
-    enum class AxisState {
+    ENUM_CLASS AxisState {
         stop_moving = 0,
         start_moving
     };
@@ -97,11 +98,7 @@ namespace GP {
         void set_axis_value(Axis axis, long value);
         
     public:
-        Gamepad() : _axis_changed_self{NULL}, _axis_changed_callback{NULL},
-                    _button_changed_self{NULL}, _button_changed_callback{NULL},
-                    _axis_state_self{NULL}, _axis_state_callback{NULL},
-                    _associated_object{NULL}, _associated_deleter{NULL}, 
-                    _centroid{0}, _cached_axis_values{0}, _old_axis_state{AxisState::stop_moving} {}
+        Gamepad();
     
         void set_axis_changed_callback(void* self, AxisChangedCallback callback);
         void set_axis_state_changed_callback(void* self, AxisStateChangedCallback callback);

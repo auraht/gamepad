@@ -42,15 +42,23 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 namespace GP {
     class Gamepad_Windows : public Gamepad {
     private:
+        struct _AxisUsage {
+            Axis axis;
+            USAGE usage_page;
+            USAGE usage;
+        };
+
         HANDLE _hdevice;
         std::vector<char> _preparsed_buf;
         PHIDP_PREPARSED_DATA _preparsed;
 
         ULONG _buttons_count;
-        std::unordered_set<USAGE> _previous_active_buttons;
-        std::vector<Axis> _axes;
-        ULONG _previous_axis_values[kMaxAxisIndex];
+        std::unordered_set<Button> _previous_active_buttons;
+        std::vector<_AxisUsage> _valid_axes;
         
+        bool send(int usage_page, int usage, const void* content, size_t content_size);
+        bool retrieve(int usage_page, int usage, void* buffer, size_t buffer_size);
+
     public:
         Gamepad_Windows(HANDLE hdevice);
 
