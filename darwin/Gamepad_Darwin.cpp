@@ -35,6 +35,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <CoreFoundation/CoreFoundation.h>
 #include <tr1/unordered_map>
 #include <algorithm>
+#include <mach/mach_time.h>
 
 namespace GP {
     struct Ctx {
@@ -49,10 +50,15 @@ namespace GP {
         int usage_page = IOHIDElementGetUsagePage(element);
         int usage = IOHIDElementGetUsage(element);
         Axis axis = axis_from_usage(usage_page, usage);
+        auto elem_type = IOHIDElementGetType(element);
         
         if (axis != Axis::invalid) {
             ctx->gamepad->set_bounds_for_axis(axis, IOHIDElementGetLogicalMin(element), IOHIDElementGetLogicalMax(element));
-        } else if (IOHIDElementGetType(element) != kIOHIDElementTypeInput_Button) {
+        } else if (elem_type != kIOHIDElementTypeInput_Button) {
+            if (elem_type == kIOHIDElementTypeOutput || elem_type == kIOHIDElementTypeFeature) {
+                int compiled_usage = usage_page << 16 | usage;
+                ctx->gamepad->_valid_output_elements.insert({compiled_usage, element});
+            }
             element = NULL;
         }
         
@@ -89,6 +95,10 @@ namespace GP {
         Gamepad_Darwin* this_ = static_cast<Gamepad_Darwin*>(context);
         this_->handle_axes_change();
     }
+    
+    void send(int usage_page, int usage, const unsigned char* content, size_t content_size);
+    void retrieve(int usage_page, int usage, unsigned char* buffer, size_t buffer_size);
+
         
     Gamepad_Darwin::Gamepad_Darwin(IOHIDDeviceRef device) : Gamepad(), _device{device} {
         CFArrayRef elements = IOHIDDeviceCopyMatchingElements(device, NULL, kIOHIDOptionsTypeNone);
@@ -104,4 +114,48 @@ namespace GP {
         IOHIDDeviceRegisterInputValueCallback(device, Gamepad_Darwin::handle_input_value, this);
         IOHIDDeviceRegisterInputReportCallback(device, NULL, 0, Gamepad_Darwin::handle_report, this);
     }
+    
+    //## WARNING: THE FOLLOWING TWO METHODS ARE NOT TESTED! 
+    //            Testing will be delayed to when I've met a device that the
+    //             output format is reliably decoded. Do not use them in 
+    //             productive environment.
+            
+    bool Gamepad_Darwin::send(int usage_page, int usage, const void* content, size_t content_size) {
+        int compiled_usage = usage_page << 16 | usage;
+        auto it = _valid_output_elements.find(compiled_usage);
+        if (it == _valid_output_elements.end())
+            return false;
+        
+        
+        auto elem = it->second;
+        //## TODO: Or use IOHIDValueCreateWithBytes??
+        auto value = IOHIDValueCreateWithBytesNoCopy(kCFAllocatorDefault, elem, mach_absolute_time(), static_cast<const uint8_t*>(content), content_size);
+        IOReturn retval = IOHIDDeviceSetValue(_device, elem, value);
+        CFRelease(value);
+        
+        return retval == 0;
+    }
+    
+    bool Gamepad_Darwin::retrieve(int usage_page, int usage, void* buffer, size_t buffer_size) {
+        int compiled_usage = usage_page << 16 | usage;
+        auto it = _valid_output_elements.find(compiled_usage);
+        if (it == _valid_output_elements.end())
+            return false;
+        
+        
+        auto elem = it->second;
+        IOHIDValueRef value;
+        IOReturn retval = IOHIDDeviceGetValue(_device, elem, &value);
+        if (retval)
+            return false;
+        
+        size_t length = IOHIDValueGetLength(value);
+        const uint8_t* bytePtr = IOHIDValueGetBytePtr(value);
+        if (length > buffer_size)
+            length = buffer_size;
+        memcpy(buffer, bytePtr, length);
+        return true;
+    }
+    
+    //## END WARNING
 }

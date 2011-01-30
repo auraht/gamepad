@@ -109,6 +109,24 @@ namespace GP {
         
         /// Return the upper limit of value the axis can take.
         long axis_bound(Axis axis) const;
+
+        //## WARNING: THE FOLLOWING TWO METHODS ARE NOT TESTED! 
+        //            Testing will be delayed to when I've met a device that the
+        //             output format is reliably decoded. Do not use them in 
+        //             productive environment.
+         
+        //## TODO: Create a transaction class for efficiency if needed.
+        
+        /// Send some content synchronously to the HID class device.
+        /// Returns whether the send is successful.
+        /// (usage_page, usage) must be an output control or feature.
+        virtual bool send(int usage_page, int usage, const void* content, size_t content_size) = 0;
+        /// Get some content synchronously from the HID class device.
+        /// Returns whether the retrieval is successful.
+        /// (usage_page, usage) must be a feature.
+        virtual bool retrieve(int usage_page, int usage, void* buffer, size_t buffer_size) = 0;
+        
+        //## END WARNING
         
         void associate(void* object, void (*deleter)(void*) = NULL);        
         void* associated_object() const;

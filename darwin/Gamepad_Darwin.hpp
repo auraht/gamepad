@@ -36,16 +36,21 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "../Gamepad.hpp"
 #include <IOKit/hid/IOHIDManager.h>
+#include <unordered_map>
 
 namespace GP {
     class Gamepad_Darwin : public Gamepad {
     private:
         IOHIDDeviceRef _device;
+        std::unordered_map<int, IOHIDElementRef> _valid_output_elements;
         
         static void collect_axis_bounds(const void* element, void* self);
         
         static void handle_input_value(void* context, IOReturn result, void* sender, IOHIDValueRef value);
         static void handle_report(void* context, IOReturn, void*, IOHIDReportType, uint32_t, uint8_t*, CFIndex);
+        
+        bool send(int usage_page, int usage, const void* content, size_t content_size);
+        bool retrieve(int usage_page, int usage, void* buffer, size_t buffer_size);
         
     public:
         Gamepad_Darwin(IOHIDDeviceRef device);
