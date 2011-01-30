@@ -37,8 +37,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "../GamepadChangedObserver.hpp"
 #include <IOKit/hid/IOHIDManager.h>
 #include <CoreFoundation/CoreFoundation.h>
-#include <tr1/unordered_map>
-#include <tr1/memory>
+#include <unordered_map>
+#include <memory>
 
 namespace GP {
     class Gamepad_Darwin;
@@ -46,7 +46,8 @@ namespace GP {
     class GamepadChangedObserver_Darwin : public GamepadChangedObserver {
     private:
         IOHIDManagerRef _manager;
-        std::tr1::unordered_map<IOHIDDeviceRef, std::tr1::shared_ptr<Gamepad_Darwin> > _active_devices;
+        std::unordered_map<IOHIDDeviceRef, std::shared_ptr<Gamepad_Darwin>> _active_devices;
+        // ^ we use a shared_ptr here because unique_ptr doesn't work in gcc.
         CFRunLoopRef _runloop;
         
         static void matched_device_cb(void* context, IOReturn result, void* sender, IOHIDDeviceRef device);

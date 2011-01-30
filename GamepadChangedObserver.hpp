@@ -41,16 +41,16 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 namespace GP {
     class Gamepad;
-    class Eventloop;
-    
+
+    enum class GamepadState {
+        attached,
+        detaching
+    };
+
     class GamepadChangedObserver {
-    public:
-        enum State {
-            kAttached,
-            kDetaching
-        }; 
+    public:        
     
-        typedef void (*Callback)(void* self, Gamepad* gamepad, State state);
+        typedef void (*Callback)(void* self, Gamepad* gamepad, GamepadState state);
     
     private:
         void* _self;
@@ -59,7 +59,7 @@ namespace GP {
     protected:
         virtual void observe_impl() = 0;
         
-        void handle_event(Gamepad* gamepad, State state) const {
+        void handle_event(Gamepad* gamepad, GamepadState state) const {
             if (_callback)
                 _callback(_self, gamepad, state);
         }

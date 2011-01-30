@@ -38,6 +38,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <algorithm>
 
 namespace GP {
+    // the function of this function is to create the matcher dictionary given
+    // the usage page and usage.
     static CFDictionaryRef create_usage_matcher(int usage_page, int usage) {
         CFTypeRef keys[] = {
             CFSTR(kIOHIDDeviceUsagePageKey), 
@@ -55,17 +57,22 @@ namespace GP {
         return retval;
     }
     
+    // this method is called whenever a device is attached.
     void GamepadChangedObserver_Darwin::matched_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device) {
-        GamepadChangedObserver_Darwin* this_ = static_cast<GamepadChangedObserver_Darwin*>(context);
-        std::tr1::shared_ptr<Gamepad_Darwin> gamepad (new Gamepad_Darwin(device));
-        this_->_active_devices.insert(std::make_pair(device, gamepad));
-        this_->handle_event(gamepad.get(), kAttached);
+        auto this_ = static_cast<GamepadChangedObserver_Darwin*>(context);
+        
+        auto gamepad = new Gamepad_Darwin(device);
+        
+        this_->_active_devices.insert({device, std::shared_ptr<Gamepad_Darwin>(gamepad)});
+        this_->handle_event(gamepad, GamepadState::attached);
     }
+    
+    // this method is called whenever a device is removed.
     void GamepadChangedObserver_Darwin::removing_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device) {
-        GamepadChangedObserver_Darwin* this_ = static_cast<GamepadChangedObserver_Darwin*>(context);
-        std::tr1::unordered_map<IOHIDDeviceRef, std::tr1::shared_ptr<Gamepad_Darwin> >::iterator it = this_->_active_devices.find(device);
+        auto this_ = static_cast<GamepadChangedObserver_Darwin*>(context);
+        auto it = this_->_active_devices.find(device);
         Gamepad_Darwin* gamepad = it->second.get();
-        this_->handle_event(gamepad, kDetaching);
+        this_->handle_event(gamepad, GamepadState::detaching);
         this_->_active_devices.erase(it);
     }
     
@@ -73,6 +80,8 @@ namespace GP {
     void GamepadChangedObserver_Darwin::observe_impl() {
         _manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
         
+        // we only care about joysticks, gamepads and multi-axis controllers,
+        // just like SDL.
         CFTypeRef values[] = {
             create_usage_matcher(kHIDPage_GenericDesktop, kHIDUsage_GD_Joystick),
             create_usage_matcher(kHIDPage_GenericDesktop, kHIDUsage_GD_GamePad),
@@ -80,14 +89,17 @@ namespace GP {
         };
         const int values_count = sizeof(values)/sizeof(*values);
         
+        // tell the HID manager to observe those 3 kinds of devices.
         CFArrayRef alternatives = CFArrayCreate(kCFAllocatorDefault, values, values_count, &kCFTypeArrayCallBacks);
         std::for_each(values, values+values_count, CFRelease);
         IOHIDManagerSetDeviceMatchingMultiple(_manager, alternatives);
         CFRelease(alternatives);
         
+        // tell the HID manager to watch for attachment and removal.
         IOHIDManagerRegisterDeviceMatchingCallback(_manager, GamepadChangedObserver_Darwin::matched_device_cb, this);
         IOHIDManagerRegisterDeviceRemovalCallback(_manager, GamepadChangedObserver_Darwin::removing_device_cb, this);
 
+        // begin observing.
         IOHIDManagerScheduleWithRunLoop(_manager, _runloop, kCFRunLoopDefaultMode);
         IOHIDManagerOpen(_manager, kIOHIDOptionsTypeNone);
     }

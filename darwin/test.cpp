@@ -54,8 +54,8 @@ void gamepad_button_changed(void*, GP::Gamepad* gamepad, GP::Button button, bool
 }
 
 
-void gamepad_state_changed(void* self, GP::Gamepad* gamepad, GP::GamepadChangedObserver::State state) {
-    if (state == GP::GamepadChangedObserver::kDetaching) {
+void gamepad_state_changed(void* self, GP::Gamepad* gamepad, GP::GamepadState state) {
+    if (state == GP::GamepadState::detaching) {
         printf("Gamepad %p is detached, quitting.\n", gamepad);
         
         Context* ctx = static_cast<Context*>(self);
