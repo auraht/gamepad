@@ -39,90 +39,177 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 
 #include "hidusage.h"
-const USHORT HID_USAGE_GENERIC_MULTI_AXIS_CONTROLLER = 8;
+#include "hidsdi.h"
+#include "Shared.hpp"
+#include <SetupAPI.h>
+#include <Dbt.h>
+#include <tchar.h>
+
+
+static struct HIDDLL2 {
+    HMODULE _module;
+    decltype(&::HidD_GetHidGuid) HidD_GetHidGuid;
+
+    HIDDLL2() {
+        memset(this, 0, sizeof(*this));
+        _module = LoadLibrary("hid.dll");
+        if (_module) {
+            HidD_GetHidGuid = reinterpret_cast<decltype(HidD_GetHidGuid)>(GetProcAddress(_module, "HidD_GetHidGuid"));
+        }
+    }
+
+    ~HIDDLL2() {
+        if (_module)
+            FreeLibrary(_module);
+    }
+} hid;
+
 
 namespace GP {
-    static std::unordered_map<HWND, GamepadChangedObserver_Windows*> _OBSERVERS;
+
+    //---------------------------------------------------------------------------------------------------------------------
+
+    void GamepadChangedObserver_Windows::insert_device_with_path(HWND hwnd, LPCTSTR path) {
+        auto gamepad_ptr = Gamepad_Windows::insert(hwnd, path);
+        if (gamepad_ptr) {
+            //## TODO: Do we need a lock here?
+            std::tr1::shared_ptr<Gamepad_Windows> gamepad (gamepad_ptr);
+            HANDLE hdevice = gamepad_ptr->device_handle();
+            _active_devices.insert(std::make_pair(hdevice, gamepad));
+            this->handle_event(gamepad_ptr, GamepadState::attached);
+        }
+    }
 
     LRESULT CALLBACK GamepadChangedObserver_Windows::message_handler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-        auto cit = _OBSERVERS.find(hwnd);
-        /// TODO: Should we test whether cit is valid?
-        GamepadChangedObserver_Windows* this_ = cit->second;
-
+        GamepadChangedObserver_Windows* this_;
+        WNDPROC lastWndProc;
+        
         switch (msg) {
-        case WM_INPUT_DEVICE_CHANGE:
-            {
-                HANDLE hdevice = reinterpret_cast<HANDLE>(lparam);
-                if (wparam == GIDC_ARRIVAL) {
-                    std::tr1::shared_ptr<Gamepad_Windows> gamepad (new Gamepad_Windows(hdevice));
-                    this_->_active_devices.insert(std::make_pair(hdevice, gamepad));
-                    this_->handle_event(gamepad.get(), GamepadState::attached);
-                } else if (wparam == GIDC_REMOVAL) {
+        case WM_NCDESTROY:
+            lastWndProc = static_cast<WNDPROC>( RemoveProp(hwnd, _T("com.auraHT.gamepad.lastWndProc")) );
+            this_ = static_cast<GamepadChangedObserver_Windows*>( RemoveProp(hwnd, _T("com.auraHT.gamepad.this_")) );
+            this_->_hwnd = NULL;
+            UnregisterDeviceNotification(this_->_notif);
+            break;
+
+        case WM_DEVICECHANGE:
+        {
+            PDEV_BROADCAST_HDR event_data = reinterpret_cast<PDEV_BROADCAST_HDR>(lparam);
+            switch (wparam) {
+            default:
+                break;
+
+            case DBT_DEVICEARRIVAL:
+                // plugged in.
+                if (event_data->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
+                    this_ = static_cast<GamepadChangedObserver_Windows*>( GetProp(hwnd, _T("com.auraHT.gamepad.this_")) );
+                    auto dev_path = reinterpret_cast<PDEV_BROADCAST_DEVICEINTERFACE>(event_data)->dbcc_name;
+                    this_->insert_device_with_path(hwnd, dev_path);
+                    return TRUE;
+                }
+                break;
+
+            case DBT_DEVICEREMOVECOMPLETE:
+                // unplugged.
+                if (event_data->dbch_devicetype == DBT_DEVTYP_HANDLE) {
+                    HANDLE hdevice = reinterpret_cast<PDEV_BROADCAST_HANDLE>(event_data)->dbch_handle;
+                    //## TODO: Do we need a lock here?
+                    this_ = static_cast<GamepadChangedObserver_Windows*>( GetProp(hwnd, _T("com.auraHT.gamepad.this_")) );
                     auto it = this_->_active_devices.find(hdevice);
                     this_->handle_event(it->second.get(), GamepadState::detaching);
                     this_->_active_devices.erase(it);
+                    return TRUE;
                 }
                 break;
             }
-
-        case WM_INPUT:
-            {
-                UINT buffer_size;
-                HRAWINPUT hdata = reinterpret_cast<HRAWINPUT>(lparam);
-
-                GetRawInputData(hdata, RID_INPUT, NULL, &buffer_size, sizeof(RAWINPUTHEADER));
-                std::vector<char> buffer (buffer_size);
-                RAWINPUT* input = reinterpret_cast<RAWINPUT*>(&buffer[0]);
-
-                /// TODO: Throw if GetRawInputData returns incorrect size.
-                GetRawInputData(hdata, RID_INPUT, input, &buffer_size, sizeof(RAWINPUTHEADER));
-                
-                auto it = this_->_active_devices.find(input->header.hDevice);
-                Gamepad_Windows* gamepad = it->second.get();
-                gamepad->handle_raw_input(input->data.hid);
-
-                return DefWindowProc(hwnd, msg, wparam, lparam);
-            }
-
+        }
+        // fall-through
+        
         default:
+            lastWndProc = static_cast<WNDPROC>( GetProp(hwnd, _T("com.auraHT.gamepad.lastWndProc")) );
             break;
         }
 
-        return CallWindowProc(this_->_orig_wndproc, hwnd, msg, wparam, lparam);
+        return CallWindowProc(lastWndProc, hwnd, msg, wparam, lparam);
+    }
+
+
+
+    void GamepadChangedObserver_Windows::populate_existing_devices(const GUID* phid_guid) {
+        // RAII structure to get and destroy the list of interfaces.
+        struct DevInfo {
+            HDEVINFO handle;
+            DevInfo(const GUID* phid_guid) 
+                : handle(SetupDiGetClassDevs(phid_guid, NULL, NULL, DIGCF_PRESENT|DIGCF_INTERFACEDEVICE)) {}
+            ~DevInfo() { 
+                if (handle != INVALID_HANDLE_VALUE)
+                    SetupDiDestroyDeviceInfoList(handle);
+            }
+        } dev_info (phid_guid);
+
+        if (dev_info.handle != INVALID_HANDLE_VALUE) {
+            SP_DEVICE_INTERFACE_DATA device_info_data;
+            device_info_data.cbSize = sizeof(device_info_data);
+
+            std::vector<char> buffer;
+            PSP_DEVICE_INTERFACE_DETAIL_DATA detail;
+
+            SP_DEVINFO_DATA devinfo;
+            devinfo.cbSize = sizeof(devinfo);
+
+            for (int i = 0; SetupDiEnumDeviceInterfaces(dev_info.handle, NULL, phid_guid, i, &device_info_data); ++ i) {
+                // get the required length to for the detail (file path) of this device.
+                DWORD required_size = 0, expected_size = 0;
+                SetupDiGetDeviceInterfaceDetail(dev_info.handle, &device_info_data, NULL, 0, &expected_size, NULL);
+
+                // expand buffer if necessary.
+                if (buffer.size() < expected_size) {
+                    buffer.resize(expected_size);
+                    detail = reinterpret_cast<decltype(detail)>(&buffer[0]);
+                }
+
+                // populate the list of devices.
+                detail->cbSize = sizeof(*detail);
+                if (SetupDiGetDeviceInterfaceDetail(dev_info.handle, &device_info_data, detail, expected_size, &required_size, NULL)) {
+                    this->insert_device_with_path(_hwnd, detail->DevicePath);
+                }
+            }
+        }
     }
 
     void GamepadChangedObserver_Windows::observe_impl() {
-        /// TODO: Need a mutex here.
-        std::pair<std::unordered_map<HWND, GamepadChangedObserver_Windows*>::iterator, bool>
-            res = _OBSERVERS.insert(std::make_pair(_hwnd, this));
-        if (!res.second) {
-            throw MultipleObserverException();
-        }
+        GUID hid_guid;
+        hid.HidD_GetHidGuid(&hid_guid);
 
-        RAWINPUTDEVICE devices_to_register[] = {
-            {HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_JOYSTICK, RIDEV_DEVNOTIFY|RIDEV_INPUTSINK, _hwnd},
-            {HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_GAMEPAD, RIDEV_DEVNOTIFY|RIDEV_INPUTSINK, _hwnd},
-            {HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_MULTI_AXIS_CONTROLLER, RIDEV_DEVNOTIFY|RIDEV_INPUTSINK, _hwnd}
-        };
-        RegisterRawInputDevices(devices_to_register, sizeof(devices_to_register)/sizeof(*devices_to_register), sizeof(*devices_to_register));
+        // Hook to the WndProc of the window, so that we can handle the device changed events.
+        WNDPROC _orig_wndproc = reinterpret_cast<WNDPROC>(GetWindowLongPtr(_hwnd, GWLP_WNDPROC));
 
+        SetProp(_hwnd, _T("com.auraHT.gamepad.lastWndProc"), _orig_wndproc);
+        SetProp(_hwnd, _T("com.auraHT.gamepad.this_"), this);
+        //## TODO: Throw if the aboves are already set.
 
-        _orig_wndproc = reinterpret_cast<WNDPROC>(GetWindowLongPtr(_hwnd, GWLP_WNDPROC));
         SetWindowLongPtr(_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(GamepadChangedObserver_Windows::message_handler));
+
+        // find all already plugged-in devices.
+        this->populate_existing_devices(&hid_guid);
+
+        // listen for hot-plugged devices
+        DEV_BROADCAST_DEVICEINTERFACE filter;
+        filter.dbcc_size = sizeof(filter);
+        filter.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
+        filter.dbcc_reserved = 0;
+        filter.dbcc_classguid = hid_guid;
+
+        _notif = RegisterDeviceNotification(_hwnd, &filter, DEVICE_NOTIFY_WINDOW_HANDLE);
     }
 
     void GamepadChangedObserver_Windows::unobserve_impl() {
-        /// TODO: Need a mutex here.
-        SetWindowLongPtr(_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(_orig_wndproc));
-        _OBSERVERS.erase(_hwnd);
+        if (_hwnd) {
+            WNDPROC _orig_wndproc = reinterpret_cast<WNDPROC>(RemoveProp(_hwnd, _T("com.auraHT.gamepad.lastWndProc")));
+            SetWindowLongPtr(_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(_orig_wndproc));
 
-        /// TODO: Are these necessary???
-        RAWINPUTDEVICE devices_to_register[] = {
-            {HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_JOYSTICK, RIDEV_REMOVE, NULL},
-            {HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_GAMEPAD, RIDEV_REMOVE, NULL},
-            {HID_USAGE_PAGE_GENERIC, HID_USAGE_GENERIC_MULTI_AXIS_CONTROLLER, RIDEV_REMOVE, NULL}
-        };
-        RegisterRawInputDevices(devices_to_register, sizeof(devices_to_register)/sizeof(*devices_to_register), sizeof(*devices_to_register));
+            RemoveProp(_hwnd, _T("com.auraHT.gamepad.this_"));
+        }
     }
 
     __declspec(dllexport) GamepadChangedObserver* GamepadChangedObserver::create_impl(void* self, Callback callback, void* eventloop) {

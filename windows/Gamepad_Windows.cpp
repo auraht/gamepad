@@ -34,6 +34,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 #include <algorithm>
 #include <iterator>
+#include "hidsdi.h"
+#include <Dbt.h>
+#include "Shared.hpp"
 
 // This stuff is to avoid the need to install the WDK just to get hid.lib.
 static const struct HIDDLL {
@@ -46,7 +49,9 @@ static const struct HIDDLL {
     MACRO(HidP_GetSpecificValueCaps); \
     MACRO(HidP_GetUsageValue); \
     MACRO(HidP_MaxUsageListLength); \
-    MACRO(HidP_GetUsagesEx)
+    MACRO(HidP_GetUsagesEx); \
+    MACRO(HidD_GetPreparsedData); \
+    MACRO(HidD_FreePreparsedData)
 
 
     HID_PERFORM(HID_DECLARE);
@@ -70,17 +75,70 @@ static const struct HIDDLL {
 } hid;
 
 namespace GP {
-    Gamepad_Windows::Gamepad_Windows(HANDLE hdevice) : Gamepad(), _hdevice(hdevice) {
-        UINT buf_size;
-        GetRawInputDeviceInfo(hdevice, RIDI_PREPARSEDDATA, NULL, &buf_size);
-        _preparsed_buf.resize(buf_size);
-        _preparsed = reinterpret_cast<PHIDP_PREPARSED_DATA>(&_preparsed_buf[0]);
+    static const USAGE_AND_PAGE _VALID_USAGES[] = {
+        {HID_USAGE_GENERIC_JOYSTICK, HID_USAGE_PAGE_GENERIC},
+        {HID_USAGE_GENERIC_GAMEPAD, HID_USAGE_PAGE_GENERIC},
+        {HID_USAGE_GENERIC_MULTI_AXIS_CONTROLLER, HID_USAGE_PAGE_GENERIC}
+    };
 
-        GetRawInputDeviceInfo(hdevice, RIDI_PREPARSEDDATA, _preparsed, &buf_size);
+    void Gamepad_Windows::destroy() {
+        if (_reader_thread_handle) {
+            DWORD errcode = ERROR_OBJECT_NOT_FOUND;
+            if (_thread_exit_event)
+                errcode = SignalObjectAndWait(_thread_exit_event, _reader_thread_handle, 1000, false);
+            if (errcode)
+                TerminateThread(_reader_thread_handle, errcode);
+            CloseHandle(_reader_thread_handle);
+            _reader_thread_handle = NULL;
+        }
+        if (_thread_exit_event) {
+            CloseHandle(_thread_exit_event);
+            _thread_exit_event = NULL;
+        }
+        if (_preparsed) {
+            hid.HidD_FreePreparsedData(_preparsed);
+            _preparsed = NULL;
+        }
+        if (_notif_handle != NULL) {
+            UnregisterDeviceNotification(_notif_handle);
+            _notif_handle = NULL;
+        }
+        if (_handle != INVALID_HANDLE_VALUE) {
+            CloseHandle(_handle);
+            _handle = INVALID_HANDLE_VALUE;
+        }
+    }
 
+    Gamepad_Windows::Gamepad_Windows(const TCHAR* dev_path)
+        : Gamepad(), _handle(INVALID_HANDLE_VALUE), _preparsed(NULL), _notif_handle(NULL), _thread_exit_event(NULL), _reader_thread_handle(NULL)
+    {
+        // 1. open a file handle to the HID class device from dev_path.
+        _handle = CreateFile(dev_path, GENERIC_READ|GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+        if (_handle == INVALID_HANDLE_VALUE)
+            return;
+        
+        // 2. retrieve the preparsed data
+        if (!hid.HidD_GetPreparsedData(_handle, &_preparsed) || !_preparsed) {
+            this->destroy();
+            return;
+        }
+
+        // 3. get capabilities from the preparsed data
         HIDP_CAPS caps;
-        hid.HidP_GetCaps(_preparsed, &caps);
+        if (hid.HidP_GetCaps(_preparsed, &caps) != HIDP_STATUS_SUCCESS) {
+            this->destroy();
+            return;
+        }
 
+        // 4. make sure the HID class device *is* a gamepad.
+        USAGE_AND_PAGE up = {caps.Usage, caps.UsagePage};
+        auto cend = _VALID_USAGES + sizeof(_VALID_USAGES)/sizeof(*_VALID_USAGES);
+        if (std::find(_VALID_USAGES, cend, up) == cend) {
+            this->destroy();
+            return;
+        }
+        
+        // 5. retrieve rest of the capabilities...
         std::vector<HIDP_VALUE_CAPS> value_caps (caps.NumberInputValueCaps);
         ULONG actual_value_caps_count = caps.NumberInputValueCaps;
         hid.HidP_GetValueCaps(HidP_Input, &value_caps[0], &actual_value_caps_count, _preparsed);
@@ -95,18 +153,54 @@ namespace GP {
         });
 
         _buttons_count = hid.HidP_MaxUsageListLength(HidP_Input, 0, _preparsed);
+        _input_report_size = caps.InputReportByteLength;
+        
+        // 6. Start reader thread.
+        _thread_exit_event = CreateEvent(NULL, false, false, NULL);
+        if (!_thread_exit_event) {
+            this->destroy();
+            return;
+        }
+        _reader_thread_handle = CreateThread(NULL, 0, Gamepad_Windows::reader_thread_entry, this, 0, NULL);
+        if (!_reader_thread_handle) {
+            this->destroy();
+            return;
+        }
     }
 
-    void Gamepad_Windows::handle_raw_input(const RAWHID& input) {
-        auto report = reinterpret_cast<PCHAR>(const_cast<BYTE*>(input.bRawData));
-        auto report_size = input.dwSizeHid;
-        if (input.dwCount != 1) {
-            //## TODO: Handle error when the report count is not 1.
+
+    DWORD Gamepad_Windows::reader_thread() {
+        std::unique_ptr<char[]> input_report (new char[_input_report_size]);
+        DWORD errcode = 0;
+
+        while (true) {
+            errcode = WaitForSingleObject(_thread_exit_event, 0);
+            if (errcode != WAIT_TIMEOUT)
+                break;
+
+            DWORD bytes_read;
+            bool succeed = ReadFile(_handle, input_report.get(), _input_report_size, &bytes_read, NULL);
+            if (bytes_read != _input_report_size)
+                succeed = false;
+            if (succeed)
+                this->handle_input_report(input_report.get());
+            else {
+                errcode = GetLastError();
+                break;
+            }
         }
 
-        std::for_each(_valid_axes.cbegin(), _valid_axes.cend(), [this, report, report_size](_AxisUsage axis_usage) {
+        if (errcode) {
+            printf("Reader thread exited with error code %d.\n", errcode);
+            //## TODO: Maybe we should throw an exception?
+        }
+        return errcode;
+    }
+
+    void Gamepad_Windows::handle_input_report(PCHAR report) {
+         std::for_each(_valid_axes.cbegin(), _valid_axes.cend(), [this, report](_AxisUsage axis_usage) {
             ULONG result = 0;
-            if (hid.HidP_GetUsageValue(HidP_Input, axis_usage.usage_page, 0, axis_usage.usage, &result, _preparsed, report, report_size) == HIDP_STATUS_SUCCESS) {
+            if (hid.HidP_GetUsageValue(HidP_Input, axis_usage.usage_page, 0, axis_usage.usage, &result, _preparsed, report, _input_report_size) == HIDP_STATUS_SUCCESS) {
                 this->set_axis_value(axis_usage.axis, result);
             }
         });
@@ -116,7 +210,7 @@ namespace GP {
         std::vector<USAGE_AND_PAGE> active_buttons_vector (_buttons_count);
         ULONG active_buttons_count = _buttons_count;
 
-        hid.HidP_GetUsagesEx(HidP_Input, 0, &active_buttons_vector[0], &active_buttons_count, _preparsed, report, report_size);
+        hid.HidP_GetUsagesEx(HidP_Input, 0, &active_buttons_vector[0], &active_buttons_count, _preparsed, report, _input_report_size);
 
         std::unordered_set<Button> active_buttons;
         std::transform(active_buttons_vector.cbegin(), active_buttons_vector.cbegin() + active_buttons_count,
@@ -140,6 +234,40 @@ namespace GP {
         _previous_active_buttons.swap(active_buttons);
     }
 
+    bool Gamepad_Windows::register_broadcast(HWND hwnd) {
+        DEV_BROADCAST_HANDLE filter;
+        filter.dbch_size = sizeof(filter);
+        filter.dbch_devicetype = DBT_DEVTYP_HANDLE;
+        filter.dbch_handle = _handle;
+
+        _notif_handle = RegisterDeviceNotification(hwnd, &filter, DEVICE_NOTIFY_WINDOW_HANDLE);
+        return _notif_handle != NULL;
+    }
+
+    Gamepad_Windows* Gamepad_Windows::insert(HWND hwnd, const TCHAR* dev_path) {
+        auto gamepad = new Gamepad_Windows(dev_path);
+        if (gamepad->_handle != INVALID_HANDLE_VALUE) {
+            // 7. register broadcast (WM_DEVICECHANGED) to allow proper handling of unplugging device.
+            if (gamepad->register_broadcast(hwnd))
+                return gamepad;
+        }
+        delete gamepad;
+        return NULL;
+    }
+
+
+    /*
+    void Gamepad_Windows::handle_raw_input(const RAWHID& input) {
+        auto report = reinterpret_cast<PCHAR>(const_cast<BYTE*>(input.bRawData));
+        auto report_size = input.dwSizeHid;
+        if (input.dwCount != 1) {
+            //## TODO: Handle error when the report count is not 1.
+        }
+
+       
+    }
+    */
+
     bool Gamepad_Windows::send(int usage_page, int usage, const void* content, size_t content_size) {
         return false;
     }
@@ -149,4 +277,3 @@ namespace GP {
     }
 
 }
-

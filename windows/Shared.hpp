@@ -1,6 +1,6 @@
 /*
  
-Gamepad_Windows.hpp ... Implementation of Gamepad for Windows.
+Shared.hpp ... Shared routines for Windows.
 
 Copyright (c) 2011  aura Human Technology Ltd.  <rnd@auraht.com>
 All rights reserved.
@@ -30,57 +30,50 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef GAMEPAD_WINDOWS_HPP_hq0p8ilfgiv34n29
-#define GAMEPAD_WINDOWS_HPP_hq0p8ilfgiv34n29 1
+#ifndef SHARED_HPP_xurm394tin8hyqfr
+#define SHARED_HPP_xurm394tin8hyqfr 1
 
-#include "../Gamepad.hpp"
 #include <Windows.h>
-#include <vector>
-#include <unordered_set>
-#include <tchar.h>
 #include "hidpi.h"
 
 namespace GP {
-    class Gamepad_Windows : public Gamepad {
-    private:
-        struct _AxisUsage {
-            Axis axis;
-            USAGE usage_page;
-            USAGE usage;
-        };
+    /// An RAII wrapper around a Windows Critical Section object.
+    class CriticalSection {
+        CRITICAL_SECTION sect;
 
-        HANDLE _handle;
-        PHIDP_PREPARSED_DATA _preparsed;
-        HDEVNOTIFY _notif_handle;
-
-        ULONG _buttons_count;
-        std::unordered_set<Button> _previous_active_buttons;
-        std::vector<_AxisUsage> _valid_axes;
-
-        size_t _input_report_size;
-        HANDLE _thread_exit_event;
-        HANDLE _reader_thread_handle;
-        
-        bool send(int usage_page, int usage, const void* content, size_t content_size);
-        bool retrieve(int usage_page, int usage, void* buffer, size_t buffer_size);
-
-        void destroy();
-        bool register_broadcast(HWND hwnd);
-
-        void handle_input_report(PCHAR report);
-        DWORD reader_thread();
-        static DWORD WINAPI reader_thread_entry(LPVOID param) {
-            return static_cast<Gamepad_Windows*>(param)->reader_thread();
-        }
-
+        CriticalSection(const CriticalSection&);
+        CriticalSection& operator=(const CriticalSection&);
     public:
-        ~Gamepad_Windows() { this->destroy(); }
-        Gamepad_Windows(const TCHAR* dev_path);
+        CriticalSection() { InitializeCriticalSection(&sect); }
+        ~CriticalSection() { DeleteCriticalSection(&sect); }
 
-        HANDLE device_handle() const { return _handle; }
-
-        static Gamepad_Windows* insert(HWND hwnd, const TCHAR* dev_path);
+        friend class CriticalSectionLocker;
     };
+
+    /// An RAII wrapper for locking a Windows Critical Section object. The usage is:
+    ///
+    ///     CriticalSection cs;
+    ///     ...
+    ///     {
+    ///        CriticalSectionLocker locker(cs);
+    ///        code_that_requires_synchronized_access();
+    ///     }
+    ///
+    class CriticalSectionLocker {
+        CriticalSection& _cs;
+
+        CriticalSectionLocker(const CriticalSectionLocker&);
+        CriticalSectionLocker& operator=(const CriticalSectionLocker&);
+    public:
+        CriticalSectionLocker(CriticalSection& cs) : _cs(cs) { EnterCriticalSection(&cs.sect); }
+        ~CriticalSectionLocker() { LeaveCriticalSection(&_cs.sect); }
+    };
+}
+
+static enum : USHORT { HID_USAGE_GENERIC_MULTI_AXIS_CONTROLLER = 8 };
+
+static inline bool operator== (const USAGE_AND_PAGE left, const USAGE_AND_PAGE right) {
+    return HidP_IsSameUsageAndPage(left, right);
 }
 
 #endif

@@ -45,8 +45,11 @@ namespace GP {
     class GamepadChangedObserver_Windows : public GamepadChangedObserver {
     private:
 		HWND _hwnd;
-        WNDPROC _orig_wndproc;
+        HDEVNOTIFY _notif;
         std::tr1::unordered_map<HANDLE, std::tr1::shared_ptr<Gamepad_Windows> > _active_devices;
+
+        void insert_device_with_path(HWND hwnd, LPCTSTR path);
+        void populate_existing_devices(const GUID* phid_guid);
 
         static LRESULT CALLBACK message_handler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
         
@@ -56,8 +59,7 @@ namespace GP {
         
     public:
         GamepadChangedObserver_Windows(void* self, Callback callback, HWND hwnd)
-            : GamepadChangedObserver(self, callback),
-              _hwnd(hwnd), _orig_wndproc(NULL) {}
+            : GamepadChangedObserver(self, callback), _hwnd(hwnd) {}
               
         ~GamepadChangedObserver_Windows() {
             this->unobserve_impl();
