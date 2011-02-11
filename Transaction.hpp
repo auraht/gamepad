@@ -1,7 +1,6 @@
 /*
  
-GamepadEventloop_Darwin.hpp ... Implementation of GamepadEventloop for Darwin
-                                (i.e. Mac OS X).
+Transaction.hpp ... Output / feature transaction
 
 Copyright (c) 2011  aura Human Technology Ltd.  <rnd@auraht.com>
 All rights reserved.
@@ -31,29 +30,49 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef GAMEPAD_DARWIN_HPP_3pw9suqkr442t9
-#define GAMEPAD_DARWIN_HPP_3pw9suqkr442t9 1
+#ifndef TRANSACTION_HPP_d94ip2x27yzaor
+#define TRANSACTION_HPP_d94ip2x27yzaor 1
 
-#include "../Gamepad.hpp"
-#include <IOKit/hid/IOHIDManager.h>
-#include <unordered_map>
+#include <vector>
 
 namespace GP {
-    class Gamepad_Darwin : public Gamepad {
+    class Transaction {
+    public:
+        struct Value {
+            int usage_page;
+            int usage;
+            long value;
+        };
+        
     private:
-        IOHIDDeviceRef _device;
-        std::unordered_map<int, IOHIDElementRef> _valid_output_elements, _valid_feature_elements;
-        
-        static void collect_axis_bounds(const void* element, void* self);
-        
-        static void handle_input_value(void* context, IOReturn result, void* sender, IOHIDValueRef value);
-        static void handle_report(void* context, IOReturn, void*, IOHIDReportType, uint32_t, uint8_t*, CFIndex);
-        
-        bool commit_transaction(const Transaction& transaction);
-        bool get_features(Transaction& transaction);
+        std::vector<Value> _output_values, _feature_values;
+        std::vector<Value> _output_buttons, _feature_buttons;
         
     public:
-        Gamepad_Darwin(IOHIDDeviceRef device);
+        void set_output_value(int usage_page, int usage, long value) {
+            Value v = {usage_page, usage, value};
+            _output_values.push_back(v);
+        }
+        
+        void set_output_button(int usage_page, int usage, bool active) {
+            Value v = {usage_page, usage, active};
+            _output_buttons.push_back(v);
+        }
+        
+        void set_feature_value(int usage_page, int usage, long value) {
+            Value v = {usage_page, usage, value};
+            _feature_values.push_back(v);
+        }
+        
+        void set_feature_button(int usage_page, int usage, bool active) {
+            Value v = {usage_page, usage, active};
+            _feature_buttons.push_back(v);
+        }
+        
+        const std::vector<Value>& output_values() const { return _output_values; }
+        const std::vector<Value>& feature_values() const { return _feature_values; }
+        const std::vector<Value>& output_buttons() const { return _output_buttons; }
+        const std::vector<Value>& feature_buttons() const { return _feature_buttons; }
     };
 }
 

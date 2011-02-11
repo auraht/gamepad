@@ -38,6 +38,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Compatibility.hpp"
 
 namespace GP {
+    class Transaction;
+    
     ENUM_CLASS Axis {
         invalid = -1,
         X, Y, Z, Rx, Ry, Rz,
@@ -111,17 +113,11 @@ namespace GP {
         //            Testing will be delayed to when I've met a device that the
         //             output format is reliably decoded. Do not use them in 
         //             productive environment.
-         
-        //## TODO: Create a transaction class for efficiency if needed.
         
-        /// Send some content synchronously to the HID class device.
-        /// Returns whether the send is successful.
-        /// (usage_page, usage) must be an output control or feature.
-        virtual bool send(int usage_page, int usage, const void* content, size_t content_size) = 0;
-        /// Get some content synchronously from the HID class device.
-        /// Returns whether the retrieval is successful.
-        /// (usage_page, usage) must be a feature.
-        virtual bool retrieve(int usage_page, int usage, void* buffer, size_t buffer_size) = 0;
+        // send output and features from a transaction.
+        virtual bool commit_transaction(const Transaction&) { return false; }
+        // get features from the device and encode into a transaction.
+        virtual bool get_features(Transaction&) { return false; }
         
         //## END WARNING
         

@@ -32,6 +32,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include "Gamepad_Darwin.hpp"
+#include "../Transaction.hpp"
 #include <CoreFoundation/CoreFoundation.h>
 #include <tr1/unordered_map>
 #include <algorithm>
@@ -57,7 +58,9 @@ namespace GP {
         } else if (elem_type != kIOHIDElementTypeInput_Button) {
             if (elem_type == kIOHIDElementTypeOutput || elem_type == kIOHIDElementTypeFeature) {
                 int compiled_usage = usage_page << 16 | usage;
-                ctx->gamepad->_valid_output_elements.insert({compiled_usage, element});
+                auto the_map = (elem_type == kIOHIDElementTypeOutput ? ctx->gamepad->_valid_output_elements : ctx->gamepad->_valid_feature_elements);
+                // note: the parenthesis is necessary to make the_map an rvalue reference.
+                the_map.insert({compiled_usage, element});
             }
             element = NULL;
         }
@@ -119,43 +122,75 @@ namespace GP {
     //            Testing will be delayed to when I've met a device that the
     //             output format is reliably decoded. Do not use them in 
     //             productive environment.
+    bool Gamepad_Darwin::commit_transaction(const Transaction& transaction) {
+        auto trans = IOHIDTransactionCreate(kCFAllocatorDefault, _device, kIOHIDTransactionDirectionTypeOutput, 0);
+        
+        auto abs_time = mach_absolute_time();        
+        
+        struct TransactionAppender {
+            uint64_t abs_time;
+            const std::unordered_map<int, IOHIDElementRef>& valid_elements;
+            std::unordered_map<int, IOHIDElementRef>::const_iterator invalid_element_it;
+            IOHIDTransactionRef trans;
             
-    bool Gamepad_Darwin::send(int usage_page, int usage, const void* content, size_t content_size) {
-        int compiled_usage = usage_page << 16 | usage;
-        auto it = _valid_output_elements.find(compiled_usage);
-        if (it == _valid_output_elements.end())
-            return false;
+            void operator() (const Transaction::Value& elem) {
+                auto cit = valid_elements.find(elem.usage_page << 16 | elem.usage);
+                if (cit != invalid_element_it) {
+                    auto value = IOHIDValueCreateWithIntegerValue(kCFAllocatorDefault, cit->second, abs_time, elem.value);
+                    IOHIDTransactionAddElement(trans, cit->second);
+                    IOHIDTransactionSetValue(trans, cit->second, value, 0);
+                    CFRelease(value);
+                }
+            }
+            
+            TransactionAppender(IOHIDTransactionRef transaction_, const std::unordered_map<int, IOHIDElementRef>& elements, uint64_t abs_time_)
+                : abs_time{abs_time_}, valid_elements(elements), invalid_element_it{elements.cend()}, trans{transaction_} {}
         
+        } output_appender(trans, _valid_output_elements, abs_time), 
+            feature_appender(trans, _valid_feature_elements, abs_time);
+
         
-        auto elem = it->second;
-        //## TODO: Or use IOHIDValueCreateWithBytes??
-        auto value = IOHIDValueCreateWithBytesNoCopy(kCFAllocatorDefault, elem, mach_absolute_time(), static_cast<const uint8_t*>(content), content_size);
-        IOReturn retval = IOHIDDeviceSetValue(_device, elem, value);
-        CFRelease(value);
+        auto output_values = transaction.output_values();
+        std::for_each(output_values.cbegin(), output_values.cend(), output_appender);
+                
+        auto output_buttons = transaction.output_buttons();
+        std::for_each(output_buttons.cbegin(), output_buttons.cend(), output_appender);
         
-        return retval == 0;
+        auto feature_values = transaction.feature_values();
+        std::for_each(feature_values.cbegin(), feature_values.cend(), feature_appender);
+        
+        auto feature_buttons = transaction.feature_buttons();
+        std::for_each(feature_buttons.cbegin(), feature_buttons.cend(), feature_appender);
+                
+        IOReturn retval = IOHIDTransactionCommit(trans);
+        CFRelease(trans);
+        
+        return retval == kIOReturnSuccess;
     }
     
-    bool Gamepad_Darwin::retrieve(int usage_page, int usage, void* buffer, size_t buffer_size) {
-        int compiled_usage = usage_page << 16 | usage;
-        auto it = _valid_output_elements.find(compiled_usage);
-        if (it == _valid_output_elements.end())
-            return false;
+    bool Gamepad_Darwin::get_features(Transaction& transaction) {
+        IOHIDTransactionRef trans = IOHIDTransactionCreate(kCFAllocatorDefault, _device, kIOHIDTransactionDirectionTypeInput, 0);
+        std::for_each(_valid_feature_elements.cbegin(), _valid_feature_elements.cend(), [trans](const std::pair<int, IOHIDElementRef>& elem) {
+            IOHIDTransactionAddElement(trans, elem.second);
+        });
         
+        IOReturn retval = IOHIDTransactionCommit(trans);
+        bool succeed = (retval == kIOReturnSuccess);
+        if (succeed) {
+            std::for_each(_valid_feature_elements.cbegin(), _valid_feature_elements.cend(), [trans, &transaction](const std::pair<int, IOHIDElementRef>& elem) {
+                IOHIDValueRef value = IOHIDTransactionGetValue(trans, elem.second, 0);
+                if (value) {
+                    long intval = IOHIDValueGetIntegerValue(value);
+                    int usage_page = (elem.first >> 16) & 0xffff;
+                    int usage = elem.first & 0xffff;
+                    transaction.set_feature_value(usage_page, usage, intval);
+                }
+            });
+        }
         
-        auto elem = it->second;
-        IOHIDValueRef value;
-        IOReturn retval = IOHIDDeviceGetValue(_device, elem, &value);
-        if (retval)
-            return false;
+        CFRelease(trans);
         
-        size_t length = IOHIDValueGetLength(value);
-        const uint8_t* bytePtr = IOHIDValueGetBytePtr(value);
-        if (length > buffer_size)
-            length = buffer_size;
-        memcpy(buffer, bytePtr, length);
-        return true;
+        return succeed;
     }
-    
     //## END WARNING
 }
