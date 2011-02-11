@@ -47,6 +47,15 @@ namespace GP {
         count
     };
     
+    ENUM_CLASS AxisGroup {
+        translation,            // X, Y, Z
+        rotation,               // Rx, Ry, Rz
+        vector,                 // Vx, Vy, Vz
+        body_relative_vector,   // Vbrx, Vbry, Vbrz
+        translation_2d,         // X, Y
+        group_count
+    };
+    
     ENUM_CLASS Button {
         _1 = 1, _2, _3, _4, _5, _6, _7,
         _8, _9, _10, _11, _12, _13, _14, _15,
@@ -66,9 +75,13 @@ namespace GP {
     static Axis axis_from_usage(int usage_page, int usage);
     static Button button_from_usage(int usage_page, int usage);
     static bool valid(Axis axis);
+    static bool valid(AxisGroup axis_group);
 
     template <typename T>
     static const T* name(Axis);
+
+    template <typename T>
+    static const T* name(AxisGroup);
 
 
     class Gamepad {
@@ -77,6 +90,9 @@ namespace GP {
         typedef void (*ButtonChangedCallback)(void* self, Gamepad* gamepad, Button button, bool is_pressed);
         typedef void (*AxisStateChangedCallback)(void* self, Gamepad* gamepad, Axis axis, AxisState state);
         
+        typedef void (*AxisGroupChangedCallback)(void* self, Gamepad* gamepad, AxisGroup axis_group, long new_values[]);
+        typedef void (*AxisGroupStateChangedCallback)(void* self, Gamepad* gamepad, AxisGroup axis, AxisState state);
+        
     private:                
         void* _axis_changed_self;
         AxisChangedCallback _axis_changed_callback;
@@ -84,7 +100,10 @@ namespace GP {
         ButtonChangedCallback _button_changed_callback;
         void* _axis_state_self;
         AxisStateChangedCallback _axis_state_callback;
-        
+        void* _axis_group_changed_self;
+        AxisGroupChangedCallback _axis_group_changed_callback;
+        void* _axis_group_state_changed_self;
+        AxisGroupStateChangedCallback _axis_group_state_changed_callback;
         
         void* _associated_object;
         void (*_associated_deleter)(void* _object);
@@ -92,6 +111,7 @@ namespace GP {
         long _centroid[static_cast<int>(Axis::count)];
         long _cached_axis_values[static_cast<int>(Axis::count)];
         AxisState _old_axis_state[static_cast<int>(Axis::count)];
+        AxisState _old_axis_group_state[static_cast<int>(AxisGroup::group_count)];
         
     protected:
         void set_bounds_for_axis(Axis axis, long minimum, long maximum);
@@ -105,6 +125,10 @@ namespace GP {
         void set_axis_changed_callback(void* self, AxisChangedCallback callback);
         void set_axis_state_changed_callback(void* self, AxisStateChangedCallback callback);
         void set_button_changed_callback(void* self, ButtonChangedCallback callback);
+        
+        // These events are called when any axis in the group is changed.
+        void set_axis_group_changed_callback(void* self, AxisGroupChangedCallback callback);
+        void set_axis_group_state_changed_callback(void* self, AxisGroupStateChangedCallback callback);
         
         /// Return the upper limit of value the axis can take.
         long axis_bound(Axis axis) const;

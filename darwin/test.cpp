@@ -49,6 +49,17 @@ void gamepad_axis_changed(void*, GP::Gamepad* gamepad, GP::Axis axis, long new_v
         printf("Gamepad %p: Axis %s changed to %ld.\n", gamepad, GP::name<char>(axis), new_value);
 }
 
+void gamepad_axis_group_state_changed(void*, GP::Gamepad* gamepad, GP::AxisGroup ag, GP::AxisState state) {
+    if (ag != GP::AxisGroup::translation)
+        printf("Gamepad %p: Axis group %s %s.\n", gamepad, GP::name<char>(ag), state == GP::AxisState::start_moving ? "start moving" : "stop moving");
+}
+
+void gamepad_axis_group_changed(void*, GP::Gamepad* gamepad, GP::AxisGroup ag, long new_values[]) {
+    if (ag != GP::AxisGroup::translation)
+        printf("Gamepad %p: Axis group %s changed to <%ld %ld %ld>.\n", gamepad, GP::name<char>(ag), new_values[0], new_values[1], new_values[2]);
+}
+
+
 void gamepad_button_changed(void*, GP::Gamepad* gamepad, GP::Button button, bool is_pressed) {
     printf("Gamepad %p: Button %d is %s.\n", gamepad, button, is_pressed ? "down" : "up");
 }
@@ -66,6 +77,8 @@ void gamepad_state_changed(void* self, GP::Gamepad* gamepad, GP::GamepadState st
         
         gamepad->set_axis_changed_callback(NULL, gamepad_axis_changed);
         gamepad->set_axis_state_changed_callback(NULL, gamepad_axis_state_changed);
+        gamepad->set_axis_group_changed_callback(NULL, gamepad_axis_group_changed);
+        gamepad->set_axis_group_state_changed_callback(NULL, gamepad_axis_group_state_changed);
         gamepad->set_button_changed_callback(NULL, gamepad_button_changed);
     }
 }

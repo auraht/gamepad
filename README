@@ -11,6 +11,8 @@ i.e.
    
  - Handling axis and button events.
 
+ - Integer output and feature support.
+
  - Uses BSD or more flexible license.
 
 The library currently has the following limitations:

@@ -47,13 +47,24 @@ namespace std {
             return static_cast<size_t>(axis);
         }
     };
+    
+    template <>
+    struct hash<GP::AxisGroup> : public unary_function<GP::AxisGroup, size_t> {
+        size_t operator() (GP::AxisGroup axis) const {
+            return static_cast<size_t>(axis);
+        }
+    };
 }
 
 
 namespace GP {
     
     static inline bool valid(Axis axis) {
-        return axis > Axis::invalid && axis < Axis::count;
+        return axis >= static_cast<Axis>(0) && axis < Axis::count;
+    }
+    
+    static inline bool valid(AxisGroup axis_group) {
+        return axis_group >= static_cast<AxisGroup>(0) && axis_group < AxisGroup::group_count;
     }
     
     inline Axis axis_from_usage(int usage_page, int usage) {
@@ -74,38 +85,79 @@ namespace GP {
     inline Gamepad::Gamepad() : _axis_changed_self(NULL), _axis_changed_callback(NULL),
                     _button_changed_self(NULL), _button_changed_callback(NULL),
                     _axis_state_self(NULL), _axis_state_callback(NULL),
+                    _axis_group_changed_self(NULL), _axis_group_changed_callback(NULL),
+                    _axis_group_state_changed_self(NULL), _axis_group_state_changed_callback(NULL),
                     _associated_object(NULL), _associated_deleter(NULL) {
         memset(_centroid, 0, sizeof(_centroid));
-        memset(_cached_axis_values, 0, sizeof(_centroid));
-        memset(_old_axis_state, 0, sizeof(_centroid));
+        memset(_cached_axis_values, 0, sizeof(_cached_axis_values));
+        memset(_old_axis_state, 0, sizeof(_old_axis_state));
+        memset(_old_axis_group_state, 0, sizeof(_old_axis_group_state));
     }
 
     inline void Gamepad::set_bounds_for_axis(Axis axis, long minimum, long maximum) {
         if (valid(axis)) {
-            _cached_axis_values[static_cast<int>(axis)] = _centroid[static_cast<int>(axis)] = (maximum + minimum + 1) / 2;
+            int index = static_cast<int>(axis);
+            _centroid[index] = (maximum + minimum + 1) / 2;
+            _cached_axis_values[index] = 0;
         }
     }
 
     inline void Gamepad::set_axis_value(Axis axis, long value) {
-        if (valid(axis))
-            _cached_axis_values[static_cast<int>(axis)] = value;
+        if (valid(axis)) {
+            int index = static_cast<int>(axis);
+            _cached_axis_values[index] = value - _centroid[index];
+        }
     }
-
+    
     inline void Gamepad::handle_axes_change() {
-        bool has_state_callback = _axis_state_callback != NULL;
-        
-        if (_axis_changed_callback) {
+        if (_axis_changed_callback || _axis_state_callback) {
             for (int i = 0; i < static_cast<int>(Axis::count); ++ i) {
-                long value = _cached_axis_values[i] - _centroid[i];
+                long value = _cached_axis_values[i];
                 if (value != 0) {
-                    if (has_state_callback && _old_axis_state[i] != AxisState::start_moving) {
+                    if (_axis_state_callback && _old_axis_state[i] != AxisState::start_moving) {
                         _old_axis_state[i] = AxisState::start_moving;
                         _axis_state_callback(_axis_state_self, this, static_cast<Axis>(i), AxisState::start_moving);
                     }
-                    _axis_changed_callback(_axis_changed_self, this, static_cast<Axis>(i), value);
-                } else if (has_state_callback && _old_axis_state[i] != AxisState::stop_moving) {
+                    if (_axis_changed_callback)
+                        _axis_changed_callback(_axis_changed_self, this, static_cast<Axis>(i), value);
+                } else if (_axis_state_callback && _old_axis_state[i] != AxisState::stop_moving) {
                     _old_axis_state[i] = AxisState::stop_moving;
                     _axis_state_callback(_axis_state_self, this, static_cast<Axis>(i), AxisState::stop_moving);
+                }
+            }
+        }
+        
+        if (_axis_group_changed_callback || _axis_group_state_changed_callback) {
+            Axis axis_groups[][4] = {
+                {Axis::X, Axis::Y, Axis::Z, Axis::invalid},
+                {Axis::Rx, Axis::Ry, Axis::Rz, Axis::invalid},
+                {Axis::Vx, Axis::Vy, Axis::Vz, Axis::invalid},
+                {Axis::Vbrx, Axis::Vbry, Axis::Vbrz, Axis::invalid},
+                {Axis::X, Axis::Y, Axis::invalid, Axis::invalid}
+            };
+            
+            for (int i = 0; i < static_cast<int>(AxisGroup::group_count); ++ i) {
+                long values[sizeof(*axis_groups)/sizeof(**axis_groups)];
+                bool modified = false;
+                for (unsigned j = 0; j < sizeof(values)/sizeof(*values); ++ j) {
+                    if (axis_groups[i][j] == Axis::invalid)
+                        break;
+                    
+                    values[j] = _cached_axis_values[static_cast<int>(axis_groups[i][j])];
+                    if (values[j])
+                        modified = true;
+                }
+                
+                if (modified) {
+                    if (_axis_group_state_changed_callback && _old_axis_group_state[i] != AxisState::start_moving) {
+                        _old_axis_group_state[i] = AxisState::start_moving;
+                        _axis_group_state_changed_callback(_axis_group_state_changed_self, this, static_cast<AxisGroup>(i), AxisState::start_moving);
+                    }
+                    if (_axis_group_changed_callback)
+                        _axis_group_changed_callback(_axis_group_changed_self, this, static_cast<AxisGroup>(i), values);
+                } else if (_axis_group_state_changed_callback && _old_axis_group_state[i] != AxisState::stop_moving) {
+                    _old_axis_group_state[i] = AxisState::stop_moving;
+                    _axis_group_state_changed_callback(_axis_group_state_changed_self, this, static_cast<AxisGroup>(i), AxisState::stop_moving);
                 }
             }
         }
@@ -128,6 +180,15 @@ namespace GP {
         _button_changed_self = self;
         _button_changed_callback = callback;
     }
+    inline void Gamepad::set_axis_group_changed_callback(void* self, AxisGroupChangedCallback callback) {
+        _axis_group_changed_self = self;
+        _axis_group_changed_callback = callback;
+    }
+    inline void Gamepad::set_axis_group_state_changed_callback(void* self, AxisGroupStateChangedCallback callback) {
+        _axis_group_state_changed_self = self;
+        _axis_group_state_changed_callback = callback;
+    }
+
     
     inline long Gamepad::axis_bound(Axis axis) const {
         return valid(axis) ? _centroid[static_cast<int>(axis)] : 0;
@@ -151,7 +212,7 @@ namespace GP {
 
 
     
-    //---- some way to safely combine the following 4 functions?
+    //---- some way to safely combine the following 8 functions?
     
     template <>
     inline const char* name(Axis axis) { 
@@ -190,5 +251,40 @@ namespace GP {
         return valid(axis) ? kAxisNames[static_cast<int>(axis)] : U"";
     }
 #endif
+
+    template <>
+    inline const char* name(AxisGroup axis_group) { 
+        const char* kAxisNames[] = {
+            "translation", "rotation", "vector", "body_relative_vector", "translation_2d"
+        };
+        return valid(axis_group) ? kAxisNames[static_cast<int>(axis_group)] : "";
+    }
+
+    template <>
+    inline const wchar_t* name(AxisGroup axis_group) { 
+        const wchar_t* kAxisNames[] = {
+            L"translation", L"rotation", L"vector", L"body_relative_vector", L"translation_2d"
+        };
+        return valid(axis_group) ? kAxisNames[static_cast<int>(axis_group)] : L"";
+    }
+
+#if __GNUC__
+    template <>
+    inline const char16_t* name(AxisGroup axis_group) { 
+        const char16_t* kAxisNames[] = {
+            u"translation", u"rotation", u"vector", u"body_relative_vector", u"translation_2d"
+        };
+        return valid(axis_group) ? kAxisNames[static_cast<int>(axis_group)] : u"";
+    }
+
+    template <>
+    inline const char32_t* name(AxisGroup axis_group) { 
+        const char32_t* kAxisNames[] = {
+            U"translation", U"rotation", U"vector", U"body_relative_vector", U"translation_2d"
+        };
+        return valid(axis_group) ? kAxisNames[static_cast<int>(axis_group)] : U"";
+    }
+#endif
+
 
 }
