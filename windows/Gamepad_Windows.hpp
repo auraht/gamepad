@@ -39,6 +39,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <unordered_set>
 #include <tchar.h>
 #include "hidpi.h"
+#include "../Transaction.hpp"
 
 namespace GP {
     class Gamepad_Windows : public Gamepad {
@@ -57,12 +58,19 @@ namespace GP {
         std::unordered_set<Button> _previous_active_buttons;
         std::vector<_AxisUsage> _valid_axes;
 
-        size_t _input_report_size;
+        size_t _input_report_size, _output_report_size, _feature_report_size;
         HANDLE _thread_exit_event;
         HANDLE _reader_thread_handle;
+
+        std::vector<USAGE_AND_PAGE> _valid_feature_usages;
+        ULONG _feature_buttons_count;
         
-        bool send(int usage_page, int usage, const void* content, size_t content_size);
-        bool retrieve(int usage_page, int usage, void* buffer, size_t buffer_size);
+        bool analyze_caps(const HIDP_CAPS& caps);
+
+        std::unique_ptr<char[]> fill_output_report(HIDP_REPORT_TYPE report_type, size_t report_size, const std::vector<Transaction::Value>& values, const std::vector<Transaction::Value>& buttons) const;
+
+        bool commit_transaction(const Transaction&);
+        bool get_features(Transaction&);
 
         void destroy();
         bool register_broadcast(HWND hwnd);

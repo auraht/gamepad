@@ -84,6 +84,7 @@
     <ClInclude Include="..\..\..\Gamepad.hpp" />
     <ClInclude Include="..\..\..\GamepadChangedObserver.hpp" />
     <ClInclude Include="..\..\..\Timer.hpp" />
+    <ClInclude Include="..\..\..\Transaction.hpp" />
     <ClInclude Include="..\..\GamepadChangedObserver_Windows.hpp" />
     <ClInclude Include="..\..\Gamepad_Windows.hpp" />
     <ClInclude Include="..\..\Shared.hpp" />

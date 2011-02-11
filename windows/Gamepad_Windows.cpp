@@ -37,6 +37,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "hidsdi.h"
 #include <Dbt.h>
 #include "Shared.hpp"
+#include "../Transaction.hpp"
 
 // This stuff is to avoid the need to install the WDK just to get hid.lib.
 static const struct HIDDLL {
@@ -51,8 +52,12 @@ static const struct HIDDLL {
     MACRO(HidP_MaxUsageListLength); \
     MACRO(HidP_GetUsagesEx); \
     MACRO(HidD_GetPreparsedData); \
-    MACRO(HidD_FreePreparsedData)
-
+    MACRO(HidD_FreePreparsedData); \
+    MACRO(HidP_SetUsageValue); \
+    MACRO(HidP_SetUsages); \
+    MACRO(HidP_UnsetUsages); \
+    MACRO(HidD_SetFeature); \
+    MACRO(HidD_GetFeature)
 
     HID_PERFORM(HID_DECLARE);
 
@@ -109,6 +114,57 @@ namespace GP {
         }
     }
 
+    bool Gamepad_Windows::analyze_caps(const HIDP_CAPS& caps) {
+        // 4. make sure the HID class device *is* a gamepad.
+        USAGE_AND_PAGE up = {caps.Usage, caps.UsagePage};
+        auto cend = _VALID_USAGES + sizeof(_VALID_USAGES)/sizeof(*_VALID_USAGES);
+        if (std::find(_VALID_USAGES, cend, up) == cend) {
+            return false;
+        }
+
+        // 5. retrieve rest of the capabilities...
+
+        // 5.1. input caps
+        std::vector<HIDP_VALUE_CAPS> value_caps (caps.NumberInputValueCaps);
+        ULONG actual_value_caps_count = caps.NumberInputValueCaps;
+        hid.HidP_GetValueCaps(HidP_Input, &value_caps[0], &actual_value_caps_count, _preparsed);
+
+        std::for_each(value_caps.cbegin(), value_caps.cend(), [this](const HIDP_VALUE_CAPS& k) {
+            auto max_usage = k.IsRange ? k.Range.UsageMax : k.NotRange.Usage;
+            for (auto usage = k.Range.UsageMin; usage <= max_usage; ++ usage) {
+                Axis axis = axis_from_usage(k.UsagePage, usage);
+                if (valid(axis)) {
+                    this->set_bounds_for_axis(axis, k.LogicalMin, k.LogicalMax);
+                    _AxisUsage axis_usage = {axis, k.UsagePage, usage};
+                    _valid_axes.push_back(axis_usage);
+                }
+            }
+        });
+
+        _buttons_count = hid.HidP_MaxUsageListLength(HidP_Input, 0, _preparsed);
+        _input_report_size = caps.InputReportByteLength;
+        _output_report_size = caps.OutputReportByteLength;
+        _feature_report_size = caps.FeatureReportByteLength;
+
+        // 5.2. feature caps
+        actual_value_caps_count = caps.NumberFeatureValueCaps;
+        if (actual_value_caps_count) {
+            value_caps.resize(actual_value_caps_count);
+            hid.HidP_GetValueCaps(HidP_Feature, &value_caps[0], &actual_value_caps_count, _preparsed);
+
+            std::for_each(value_caps.cbegin(), value_caps.cend(), [this](const HIDP_VALUE_CAPS& k) {
+                auto max_usage = k.IsRange ? k.Range.UsageMax : k.NotRange.Usage;
+                for (auto usage = k.Range.UsageMin; usage <= max_usage; ++ usage) {
+                    USAGE_AND_PAGE up = {usage, k.UsagePage};
+                    _valid_feature_usages.push_back(up);
+                }
+            });
+        }
+
+        _feature_buttons_count = hid.HidP_MaxUsageListLength(HidP_Feature, 0, _preparsed);
+        return true;
+    }
+
     Gamepad_Windows::Gamepad_Windows(const TCHAR* dev_path)
         : Gamepad(), _handle(INVALID_HANDLE_VALUE), _preparsed(NULL), _notif_handle(NULL), _thread_exit_event(NULL), _reader_thread_handle(NULL)
     {
@@ -130,30 +186,10 @@ namespace GP {
             return;
         }
 
-        // 4. make sure the HID class device *is* a gamepad.
-        USAGE_AND_PAGE up = {caps.Usage, caps.UsagePage};
-        auto cend = _VALID_USAGES + sizeof(_VALID_USAGES)/sizeof(*_VALID_USAGES);
-        if (std::find(_VALID_USAGES, cend, up) == cend) {
+        if (!this->analyze_caps(caps)) {
             this->destroy();
             return;
         }
-        
-        // 5. retrieve rest of the capabilities...
-        std::vector<HIDP_VALUE_CAPS> value_caps (caps.NumberInputValueCaps);
-        ULONG actual_value_caps_count = caps.NumberInputValueCaps;
-        hid.HidP_GetValueCaps(HidP_Input, &value_caps[0], &actual_value_caps_count, _preparsed);
-
-        std::for_each(value_caps.cbegin(), value_caps.cend(), [this](const HIDP_VALUE_CAPS& k) {
-            Axis axis = axis_from_usage(k.UsagePage, k.NotRange.Usage);
-            if (valid(axis)) {
-                this->set_bounds_for_axis(axis, k.LogicalMin, k.LogicalMax);
-                _AxisUsage axis_usage = {axis, k.UsagePage, k.NotRange.Usage};
-                _valid_axes.push_back(axis_usage);
-            }
-        });
-
-        _buttons_count = hid.HidP_MaxUsageListLength(HidP_Input, 0, _preparsed);
-        _input_report_size = caps.InputReportByteLength;
         
         // 6. Start reader thread.
         _thread_exit_event = CreateEvent(NULL, false, false, NULL);
@@ -179,7 +215,7 @@ namespace GP {
                 break;
 
             DWORD bytes_read;
-            bool succeed = ReadFile(_handle, input_report.get(), _input_report_size, &bytes_read, NULL);
+            auto succeed = ReadFile(_handle, input_report.get(), _input_report_size, &bytes_read, NULL);
             if (bytes_read != _input_report_size)
                 succeed = false;
             if (succeed)
@@ -268,12 +304,71 @@ namespace GP {
     }
     */
 
-    bool Gamepad_Windows::send(int usage_page, int usage, const void* content, size_t content_size) {
-        return false;
+    std::unique_ptr<char[]> Gamepad_Windows::fill_output_report(HIDP_REPORT_TYPE report_type, size_t report_size, const std::vector<Transaction::Value>& values, const std::vector<Transaction::Value>& buttons) const {
+        if (!report_size)
+            return nullptr;
+
+        if (values.empty() && buttons.empty())
+            return nullptr;
+
+        std::unique_ptr<char[]> report_buffer(new char[report_size]);
+        PCHAR report = report_buffer.get();
+        report[0] = 0;
+
+        std::for_each(values.begin(), values.end(), [this, report, report_type, report_size](const Transaction::Value& elem) {
+            hid.HidP_SetUsageValue(report_type, elem.usage_page, 0, elem.usage, elem.value, _preparsed, report, report_size);
+        });
+
+        std::for_each(buttons.begin(), buttons.end(), [this, report, report_type, report_size](const Transaction::Value& elem) {
+            ULONG one = 1;
+            USAGE usage = elem.usage;
+            auto function = elem.value ? hid.HidP_SetUsages : hid.HidP_UnsetUsages;
+            function(report_type, elem.usage_page, 0, &usage, &one, _preparsed, report, report_size);
+        });
+
+        return std::move(report_buffer);
     }
 
-    bool Gamepad_Windows::retrieve(int usage_page, int usage, void* buffer, size_t buffer_size) {
-        return false;
+    bool Gamepad_Windows::commit_transaction(const Transaction& transaction) {
+        bool succeed = true;
+
+        auto output_buffer = this->fill_output_report(HidP_Output, _output_report_size, transaction.output_values(), transaction.output_buttons());
+        if (output_buffer != nullptr) {
+            DWORD actual_bytes_written;
+            if (!WriteFile(_handle, output_buffer.get(), _output_report_size, &actual_bytes_written, NULL))
+                succeed = false;
+        }
+
+        auto feature_buffer = this->fill_output_report(HidP_Feature, _feature_report_size, transaction.feature_values(), transaction.feature_buttons());
+        if (feature_buffer != nullptr)
+            if (!hid.HidD_SetFeature(_handle, feature_buffer.get(), _feature_report_size))
+                succeed = false;
+
+        return succeed;
     }
 
+    bool Gamepad_Windows::get_features(Transaction& transaction) {
+        std::unique_ptr<char[]> feature_buffer(new char[_feature_report_size]);
+        auto report = feature_buffer.get();
+        report[0] = 0;
+
+        if (!hid.HidD_GetFeature(_handle, report, _feature_report_size))
+            return false;
+
+        std::for_each(_valid_feature_usages.cbegin(), _valid_feature_usages.cend(), [this, report, &transaction](const USAGE_AND_PAGE& up) {
+            ULONG value;
+            if (hid.HidP_GetUsageValue(HidP_Feature, up.UsagePage, 0, up.Usage, &value, _preparsed, report, _feature_report_size))
+                transaction.set_feature_value(up.UsagePage, up.Usage, value);
+        });
+
+        ULONG active_buttons_count = _feature_buttons_count;
+        std::vector<USAGE_AND_PAGE> active_buttons_vector (active_buttons_count);
+        hid.HidP_GetUsagesEx(HidP_Feature, 0, &active_buttons_vector[0], &active_buttons_count, _preparsed, report, _feature_report_size);
+
+        std::for_each(active_buttons_vector.cbegin(), active_buttons_vector.cbegin() + active_buttons_count, [&transaction](const USAGE_AND_PAGE& up) {
+            transaction.set_feature_button(up.UsagePage, up.Usage, true);
+        });
+
+        return true;
+    }
 }
