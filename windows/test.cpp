@@ -35,55 +35,51 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Windows.h>
 #include <tchar.h>
 
-const int display_text_size = 1024;
-static TCHAR display_text[display_text_size];
-
-static int update_event_number() {
-    static int event_number = 0;
-    event_number ++;
-    if (event_number >= 100)
-        event_number = 0;
-    return event_number;
+void gamepad_axis_state_changed(void*, GP::Gamepad* gamepad, GP::Axis axis, GP::AxisState state) {
+    if (axis != GP::Axis::Z)
+        printf("Gamepad %p: Axis %s %s.\n", gamepad, GP::name<char>(axis), state == GP::AxisState::start_moving ? "start moving" : "stop moving");
 }
 
-void gamepad_axis_changed(void* hwnd, GP::Gamepad* gamepad, GP::Axis axis, long new_value) {
-    _sntprintf(display_text, display_text_size, _T("[%02d] Gamepad %p: Axis %s changed to %ld."), update_event_number(), gamepad, GP::name<TCHAR>(axis), new_value);
-
-    RedrawWindow(static_cast<HWND>(hwnd), NULL, NULL, RDW_INVALIDATE|RDW_ERASE);
+void gamepad_axis_changed(void*, GP::Gamepad* gamepad, GP::Axis axis, long new_value) {
+    if (axis != GP::Axis::Z)
+        printf("Gamepad %p: Axis %s changed to %ld.\n", gamepad, GP::name<char>(axis), new_value);
 }
 
-void gamepad_button_changed(void* hwnd, GP::Gamepad* gamepad, GP::Button button, bool is_pressed) {
-    _sntprintf(display_text, display_text_size, _T("[%02d] Gamepad %p: Button %d is %s."), update_event_number(), gamepad,button, is_pressed ? _T("down") : _T("up"));
+void gamepad_axis_group_state_changed(void*, GP::Gamepad* gamepad, GP::AxisGroup ag, GP::AxisState state) {
+    if (ag != GP::AxisGroup::translation)
+        printf("Gamepad %p: Axis group %s %s.\n", gamepad, GP::name<char>(ag), state == GP::AxisState::start_moving ? "start moving" : "stop moving");
+}
 
-    RedrawWindow(static_cast<HWND>(hwnd), NULL, NULL, RDW_INVALIDATE|RDW_ERASE);
+void gamepad_axis_group_changed(void*, GP::Gamepad* gamepad, GP::AxisGroup ag, long new_values[]) {
+    if (ag != GP::AxisGroup::translation)
+        printf("Gamepad %p: Axis group %s changed to <%ld %ld %ld>.\n", gamepad, GP::name<char>(ag), new_values[0], new_values[1], new_values[2]);
 }
 
 
-void gamepad_state_changed(void* hwnd, GP::Gamepad* gamepad, GP::GamepadState state) {
+void gamepad_button_changed(void*, GP::Gamepad* gamepad, GP::Button button, bool is_pressed) {
+    printf("Gamepad %p: Button %d is %s.\n", gamepad, button, is_pressed ? "down" : "up");
+}
+
+
+void gamepad_state_changed(void* self, GP::Gamepad* gamepad, GP::GamepadState state) {
     if (state == GP::GamepadState::detaching) {
-        _sntprintf(display_text, display_text_size, _T("[%02d] Gamepad %p is detached."), update_event_number(), gamepad);
+        printf("Gamepad %p is detached.\n", gamepad);
     } else {
-        _sntprintf(display_text, display_text_size, _T("[%02d] Gamepad %p is attached."), update_event_number(), gamepad);
+        printf("Gamepad %p is attached.\n", gamepad);
         
-        gamepad->set_axis_changed_callback(hwnd, gamepad_axis_changed);
-        gamepad->set_button_changed_callback(hwnd, gamepad_button_changed);
+        gamepad->set_axis_changed_callback(NULL, gamepad_axis_changed);
+        gamepad->set_axis_state_changed_callback(NULL, gamepad_axis_state_changed);
+        gamepad->set_axis_group_changed_callback(NULL, gamepad_axis_group_changed);
+        gamepad->set_axis_group_state_changed_callback(NULL, gamepad_axis_group_state_changed);
+        gamepad->set_button_changed_callback(NULL, gamepad_button_changed);
     }
-
-    RedrawWindow(static_cast<HWND>(hwnd), NULL, NULL, RDW_INVALIDATE|RDW_ERASE);
 }
+
 
 //-----------------------------------------------------------------------------
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     switch (msg) {
-    case WM_PAINT: 
-        {
-        PAINTSTRUCT ps;
-        HDC hdc = BeginPaint(hwnd, &ps);
-        TextOut(hdc, 0, 0, display_text, _tcslen(display_text));
-        EndPaint(hwnd, &ps);
-        break;
-        }
     case WM_DESTROY:
         PostQuitMessage(0);
         break;
@@ -96,6 +92,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 }
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    struct A {
+        FILE* stream;
+        A() {
+            AllocConsole();
+            freopen_s(&stream, "CONOUT$", "wb", stdout);
+        }
+        ~A() {
+            fclose(stream);
+            FreeConsole();
+        }
+    } a;
+
     const TCHAR window_class[] = _T("test_gamepad");
     const TCHAR window_title[] = _T("Test Gamepad");
 
@@ -132,7 +140,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     ShowWindow(hwnd, nCmdShow);
     UpdateWindow(hwnd);
 
-    GP::GamepadChangedObserver* observer = GP::GamepadChangedObserver::create(hwnd, gamepad_state_changed, hwnd);
+    GP::GamepadChangedObserver* observer = GP::GamepadChangedObserver::create(NULL, gamepad_state_changed, hwnd);
 
     MSG message;
     while (GetMessage(&message, NULL, 0, 0)) {
