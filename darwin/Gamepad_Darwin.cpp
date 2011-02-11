@@ -59,7 +59,7 @@ namespace GP {
             if (elem_type == kIOHIDElementTypeOutput || elem_type == kIOHIDElementTypeFeature) {
                 int compiled_usage = usage_page << 16 | usage;
                 auto the_map = (elem_type == kIOHIDElementTypeOutput ? ctx->gamepad->_valid_output_elements : ctx->gamepad->_valid_feature_elements);
-                // note: the parenthesis is necessary to make the_map an rvalue reference.
+                // ^ note: the parenthesis is necessary to make the_map an rvalue reference.
                 the_map.insert({compiled_usage, element});
             }
             element = NULL;
@@ -95,15 +95,26 @@ namespace GP {
     }
     
     void Gamepad_Darwin::handle_report(void* context, IOReturn, void*, IOHIDReportType, uint32_t, uint8_t*, CFIndex) {
+        // Ref: http://developer.apple.com/library/mac/#qa/qa2004/qa1398.html
+        static mach_timebase_info_data_t timebase_info;
+        if (!timebase_info.denom)
+            mach_timebase_info(&timebase_info);
+
         Gamepad_Darwin* this_ = static_cast<Gamepad_Darwin*>(context);
-        this_->handle_axes_change();
+        
+        auto time_now = mach_absolute_time();
+        auto timestamp_elapsed = time_now - this_->_last_report_time;
+        unsigned nanoseconds_elapsed = timestamp_elapsed * timebase_info.numer / timebase_info.denom;
+        this_->_last_report_time = time_now;
+        
+        this_->handle_axes_change(nanoseconds_elapsed);
     }
     
     void send(int usage_page, int usage, const unsigned char* content, size_t content_size);
     void retrieve(int usage_page, int usage, unsigned char* buffer, size_t buffer_size);
 
         
-    Gamepad_Darwin::Gamepad_Darwin(IOHIDDeviceRef device) : Gamepad(), _device{device} {
+    Gamepad_Darwin::Gamepad_Darwin(IOHIDDeviceRef device) : Gamepad(), _device{device}, _last_report_time{mach_absolute_time()} {
         CFArrayRef elements = IOHIDDeviceCopyMatchingElements(device, NULL, kIOHIDOptionsTypeNone);
         CFMutableArrayRef restricted_elements = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
         

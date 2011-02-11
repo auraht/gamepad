@@ -43,6 +43,7 @@ namespace GP {
     private:
         IOHIDDeviceRef _device;
         std::unordered_map<int, IOHIDElementRef> _valid_output_elements, _valid_feature_elements;
+        uint64_t _last_report_time;
         
         static void collect_axis_bounds(const void* element, void* self);
         

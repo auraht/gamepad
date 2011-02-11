@@ -209,6 +209,11 @@ namespace GP {
         std::unique_ptr<char[]> input_report (new char[_input_report_size]);
         DWORD errcode = 0;
 
+        LARGE_INTEGER last_counter = {0}, frequency = {0};
+        QueryPerformanceFrequency(&frequency);
+        QueryPerformanceCounter(&last_counter);
+        //## TODO: Fallback to GetTickCount if QueryPerformanceCounter is not supported.
+
         while (true) {
             errcode = WaitForSingleObject(_thread_exit_event, 0);
             if (errcode != WAIT_TIMEOUT)
@@ -218,8 +223,16 @@ namespace GP {
             auto succeed = ReadFile(_handle, input_report.get(), _input_report_size, &bytes_read, NULL);
             if (bytes_read != _input_report_size)
                 succeed = false;
-            if (succeed)
-                this->handle_input_report(input_report.get());
+            if (succeed) {
+                LARGE_INTEGER counter;
+                QueryPerformanceCounter(&counter);
+                auto delta_c = counter.QuadPart - last_counter.QuadPart;
+                last_counter = counter;
+                auto nanosec = delta_c * 1000000000 / frequency.QuadPart;
+                unsigned nanoseconds_elapsed = static_cast<unsigned>(nanosec);
+
+                this->handle_input_report(input_report.get(), nanoseconds_elapsed);
+            }
             else {
                 errcode = GetLastError();
                 break;
@@ -233,7 +246,7 @@ namespace GP {
         return errcode;
     }
 
-    void Gamepad_Windows::handle_input_report(PCHAR report) {
+    void Gamepad_Windows::handle_input_report(PCHAR report, unsigned nanoseconds_elapsed) {
          std::for_each(_valid_axes.cbegin(), _valid_axes.cend(), [this, report](_AxisUsage axis_usage) {
             ULONG result = 0;
             if (hid.HidP_GetUsageValue(HidP_Input, axis_usage.usage_page, 0, axis_usage.usage, &result, _preparsed, report, _input_report_size) == HIDP_STATUS_SUCCESS) {
@@ -241,7 +254,7 @@ namespace GP {
             }
         });
 
-        this->handle_axes_change();
+        this->handle_axes_change(nanoseconds_elapsed);
 
         std::vector<USAGE_AND_PAGE> active_buttons_vector (_buttons_count);
         ULONG active_buttons_count = _buttons_count;

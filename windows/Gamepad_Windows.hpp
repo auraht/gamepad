@@ -75,7 +75,7 @@ namespace GP {
         void destroy();
         bool register_broadcast(HWND hwnd);
 
-        void handle_input_report(PCHAR report);
+        void handle_input_report(PCHAR report, unsigned nanoseconds_elapsed);
         DWORD reader_thread();
         static DWORD WINAPI reader_thread_entry(LPVOID param) {
             return static_cast<Gamepad_Windows*>(param)->reader_thread();

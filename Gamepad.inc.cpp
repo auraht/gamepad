@@ -109,7 +109,7 @@ namespace GP {
         }
     }
     
-    inline void Gamepad::handle_axes_change() {
+    inline void Gamepad::handle_axes_change(unsigned nanoseconds_elapsed) {
         if (_axis_changed_callback || _axis_state_callback) {
             for (int i = 0; i < static_cast<int>(Axis::count); ++ i) {
                 long value = _cached_axis_values[i];
@@ -119,7 +119,7 @@ namespace GP {
                         _axis_state_callback(_axis_state_self, this, static_cast<Axis>(i), AxisState::start_moving);
                     }
                     if (_axis_changed_callback)
-                        _axis_changed_callback(_axis_changed_self, this, static_cast<Axis>(i), value);
+                        _axis_changed_callback(_axis_changed_self, this, static_cast<Axis>(i), value, nanoseconds_elapsed);
                 } else if (_axis_state_callback && _old_axis_state[i] != AxisState::stop_moving) {
                     _old_axis_state[i] = AxisState::stop_moving;
                     _axis_state_callback(_axis_state_self, this, static_cast<Axis>(i), AxisState::stop_moving);
@@ -154,7 +154,7 @@ namespace GP {
                         _axis_group_state_changed_callback(_axis_group_state_changed_self, this, static_cast<AxisGroup>(i), AxisState::start_moving);
                     }
                     if (_axis_group_changed_callback)
-                        _axis_group_changed_callback(_axis_group_changed_self, this, static_cast<AxisGroup>(i), values);
+                        _axis_group_changed_callback(_axis_group_changed_self, this, static_cast<AxisGroup>(i), values, nanoseconds_elapsed);
                 } else if (_axis_group_state_changed_callback && _old_axis_group_state[i] != AxisState::stop_moving) {
                     _old_axis_group_state[i] = AxisState::stop_moving;
                     _axis_group_state_changed_callback(_axis_group_state_changed_self, this, static_cast<AxisGroup>(i), AxisState::stop_moving);

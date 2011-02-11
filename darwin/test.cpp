@@ -44,9 +44,9 @@ void gamepad_axis_state_changed(void*, GP::Gamepad* gamepad, GP::Axis axis, GP::
         printf("Gamepad %p: Axis %s %s.\n", gamepad, GP::name<char>(axis), state == GP::AxisState::start_moving ? "start moving" : "stop moving");
 }
 
-void gamepad_axis_changed(void*, GP::Gamepad* gamepad, GP::Axis axis, long new_value) {
+void gamepad_axis_changed(void*, GP::Gamepad* gamepad, GP::Axis axis, long new_value, unsigned nse) {
     if (axis != GP::Axis::Z)
-        printf("Gamepad %p: Axis %s changed to %ld.\n", gamepad, GP::name<char>(axis), new_value);
+        printf("Gamepad %p: Axis %s changed to %ld (%uns).\n", gamepad, GP::name<char>(axis), new_value, nse);
 }
 
 void gamepad_axis_group_state_changed(void*, GP::Gamepad* gamepad, GP::AxisGroup ag, GP::AxisState state) {
@@ -54,9 +54,9 @@ void gamepad_axis_group_state_changed(void*, GP::Gamepad* gamepad, GP::AxisGroup
         printf("Gamepad %p: Axis group %s %s.\n", gamepad, GP::name<char>(ag), state == GP::AxisState::start_moving ? "start moving" : "stop moving");
 }
 
-void gamepad_axis_group_changed(void*, GP::Gamepad* gamepad, GP::AxisGroup ag, long new_values[]) {
+void gamepad_axis_group_changed(void*, GP::Gamepad* gamepad, GP::AxisGroup ag, long new_values[], unsigned nse) {
     if (ag != GP::AxisGroup::translation)
-        printf("Gamepad %p: Axis group %s changed to <%ld %ld %ld>.\n", gamepad, GP::name<char>(ag), new_values[0], new_values[1], new_values[2]);
+        printf("Gamepad %p: Axis group %s changed to <%ld %ld %ld> (%uns).\n", gamepad, GP::name<char>(ag), new_values[0], new_values[1], new_values[2], nse);
 }
 
 

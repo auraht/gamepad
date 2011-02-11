@@ -86,11 +86,11 @@ namespace GP {
 
     class Gamepad {
     public:
-        typedef void (*AxisChangedCallback)(void* self, Gamepad* gamepad, Axis axis, long new_value);
+        typedef void (*AxisChangedCallback)(void* self, Gamepad* gamepad, Axis axis, long new_value, unsigned nanoseconds_elapsed);
         typedef void (*ButtonChangedCallback)(void* self, Gamepad* gamepad, Button button, bool is_pressed);
         typedef void (*AxisStateChangedCallback)(void* self, Gamepad* gamepad, Axis axis, AxisState state);
         
-        typedef void (*AxisGroupChangedCallback)(void* self, Gamepad* gamepad, AxisGroup axis_group, long new_values[]);
+        typedef void (*AxisGroupChangedCallback)(void* self, Gamepad* gamepad, AxisGroup axis_group, long new_values[], unsigned nanoseconds_elapsed);
         typedef void (*AxisGroupStateChangedCallback)(void* self, Gamepad* gamepad, AxisGroup axis, AxisState state);
         
     private:                
@@ -115,7 +115,7 @@ namespace GP {
         
     protected:
         void set_bounds_for_axis(Axis axis, long minimum, long maximum);
-        void handle_axes_change();
+        void handle_axes_change(unsigned nanoseconds_elapsed);
         void handle_button_change(Button button, bool is_pressed);
         void set_axis_value(Axis axis, long value);
         
