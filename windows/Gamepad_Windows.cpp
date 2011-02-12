@@ -89,12 +89,18 @@ namespace GP {
     void Gamepad_Windows::destroy() {
         if (_reader_thread_handle) {
             DWORD errcode = ERROR_OBJECT_NOT_FOUND;
+            if (_input_received_event)
+                SetEvent(_input_received_event);
             if (_thread_exit_event)
                 errcode = SignalObjectAndWait(_thread_exit_event, _reader_thread_handle, 1000, false);
             if (errcode)
                 TerminateThread(_reader_thread_handle, errcode);
             CloseHandle(_reader_thread_handle);
             _reader_thread_handle = NULL;
+        }
+        if (_input_received_event) {
+            CloseHandle(_input_received_event);
+            _input_received_event = NULL;
         }
         if (_thread_exit_event) {
             CloseHandle(_thread_exit_event);
@@ -165,8 +171,9 @@ namespace GP {
         return true;
     }
 
-    Gamepad_Windows::Gamepad_Windows(const TCHAR* dev_path)
-        : Gamepad(), _handle(INVALID_HANDLE_VALUE), _preparsed(NULL), _notif_handle(NULL), _thread_exit_event(NULL), _reader_thread_handle(NULL)
+    Gamepad_Windows::Gamepad_Windows(HWND hwnd, const TCHAR* dev_path)
+        : Gamepad(), _handle(INVALID_HANDLE_VALUE), _preparsed(NULL), _notif_handle(NULL), _thread_exit_event(NULL), _reader_thread_handle(NULL),
+          _input_received_event(NULL), _hwnd(hwnd)
     {
         // 1. open a file handle to the HID class device from dev_path.
         _handle = CreateFile(dev_path, GENERIC_READ|GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
@@ -197,8 +204,19 @@ namespace GP {
             this->destroy();
             return;
         }
+        _input_received_event = CreateEvent(NULL, true, true, NULL);
+        if (!_input_received_event) {
+            this->destroy();
+            return;
+        }
         _reader_thread_handle = CreateThread(NULL, 0, Gamepad_Windows::reader_thread_entry, this, 0, NULL);
         if (!_reader_thread_handle) {
+            this->destroy();
+            return;
+        }
+
+        // 7. register broadcast (WM_DEVICECHANGED) to allow proper handling of unplugging device.
+        if (!this->register_broadcast(hwnd)) {
             this->destroy();
             return;
         }
@@ -206,7 +224,7 @@ namespace GP {
 
 
     DWORD Gamepad_Windows::reader_thread() {
-        std::unique_ptr<char[]> input_report (new char[_input_report_size]);
+        _input_report_buffer.resize(_input_report_size);
         DWORD errcode = 0;
 
         LARGE_INTEGER last_counter = {0}, frequency = {0};
@@ -220,7 +238,7 @@ namespace GP {
                 break;
 
             DWORD bytes_read;
-            auto succeed = ReadFile(_handle, input_report.get(), _input_report_size, &bytes_read, NULL);
+            auto succeed = ReadFile(_handle, &_input_report_buffer[0], _input_report_size, &bytes_read, NULL);
             if (bytes_read != _input_report_size)
                 succeed = false;
             if (succeed) {
@@ -231,7 +249,11 @@ namespace GP {
                 auto nanosec = delta_c * 1000000000 / frequency.QuadPart;
                 unsigned nanoseconds_elapsed = static_cast<unsigned>(nanosec);
 
-                this->handle_input_report(input_report.get(), nanoseconds_elapsed);
+                //this->handle_input_report(&_input_report_buffer[0], nanoseconds_elapsed);
+                ResetEvent(_input_received_event);
+                PostMessage(_hwnd, WM_USER + 0x493f, nanoseconds_elapsed, reinterpret_cast<LPARAM>(this));
+                WaitForSingleObject(_input_received_event, INFINITE);
+
             }
             else {
                 errcode = GetLastError();
@@ -246,16 +268,17 @@ namespace GP {
         return errcode;
     }
 
-    void Gamepad_Windows::handle_input_report(PCHAR report, unsigned nanoseconds_elapsed) {
-         std::for_each(_valid_axes.cbegin(), _valid_axes.cend(), [this, report](_AxisUsage axis_usage) {
+    void Gamepad_Windows::handle_input_report(unsigned nanoseconds_elapsed) {
+        PCHAR report = &_input_report_buffer[0];
+
+        std::for_each(_valid_axes.cbegin(), _valid_axes.cend(), [this, report](_AxisUsage axis_usage) {
             ULONG result = 0;
             if (hid.HidP_GetUsageValue(HidP_Input, axis_usage.usage_page, 0, axis_usage.usage, &result, _preparsed, report, _input_report_size) == HIDP_STATUS_SUCCESS) {
                 this->set_axis_value(axis_usage.axis, result);
             }
         });
 
-        this->handle_axes_change(nanoseconds_elapsed);
-
+        
         std::vector<USAGE_AND_PAGE> active_buttons_vector (_buttons_count);
         ULONG active_buttons_count = _buttons_count;
 
@@ -266,6 +289,10 @@ namespace GP {
             std::inserter(active_buttons, active_buttons.end()),
             [](USAGE_AND_PAGE usage) { return button_from_usage(usage.UsagePage, usage.Usage); }
         );
+
+        SetEvent(_input_received_event);
+
+        this->handle_axes_change(nanoseconds_elapsed);
 
         auto prev_end = _previous_active_buttons.cend();
         auto active_end = active_buttons.cend();
@@ -294,11 +321,9 @@ namespace GP {
     }
 
     Gamepad_Windows* Gamepad_Windows::insert(HWND hwnd, const TCHAR* dev_path) {
-        auto gamepad = new Gamepad_Windows(dev_path);
+        auto gamepad = new Gamepad_Windows(hwnd, dev_path);
         if (gamepad->_handle != INVALID_HANDLE_VALUE) {
-            // 7. register broadcast (WM_DEVICECHANGED) to allow proper handling of unplugging device.
-            if (gamepad->register_broadcast(hwnd))
-                return gamepad;
+            return gamepad;
         }
         delete gamepad;
         return NULL;

@@ -92,6 +92,10 @@ namespace GP {
             UnregisterDeviceNotification(this_->_notif);
             break;
 
+        case WM_USER + 0x493f:
+            reinterpret_cast<Gamepad_Windows*>(lparam)->handle_input_report(wparam);
+            return TRUE;
+
         case WM_DEVICECHANGE:
         {
             PDEV_BROADCAST_HDR event_data = reinterpret_cast<PDEV_BROADCAST_HDR>(lparam);

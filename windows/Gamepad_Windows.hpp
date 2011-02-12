@@ -64,6 +64,10 @@ namespace GP {
 
         std::vector<USAGE_AND_PAGE> _valid_feature_usages;
         ULONG _feature_buttons_count;
+
+        std::vector<char> _input_report_buffer;
+        HANDLE _input_received_event;
+        HWND _hwnd;
         
         bool analyze_caps(const HIDP_CAPS& caps);
 
@@ -75,7 +79,6 @@ namespace GP {
         void destroy();
         bool register_broadcast(HWND hwnd);
 
-        void handle_input_report(PCHAR report, unsigned nanoseconds_elapsed);
         DWORD reader_thread();
         static DWORD WINAPI reader_thread_entry(LPVOID param) {
             return static_cast<Gamepad_Windows*>(param)->reader_thread();
@@ -83,11 +86,14 @@ namespace GP {
 
     public:
         ~Gamepad_Windows() { this->destroy(); }
-        Gamepad_Windows(const TCHAR* dev_path);
+        Gamepad_Windows(HWND hwnd, const TCHAR* dev_path);
 
         HANDLE device_handle() const { return _handle; }
 
+        void handle_input_report(unsigned nanoseconds_elapsed);
+
         static Gamepad_Windows* insert(HWND hwnd, const TCHAR* dev_path);
+        
     };
 }
 
