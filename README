@@ -26,6 +26,8 @@ The library currently has the following limitations:
    you may observe drifting.
  - Calibration is ignored.
  - On Windows, axes must not be specified as a usage array.
+ - On Windows, the messages WM_USER+0x493e and WM_USER+0x493f are overridden by
+   this library, i.e. user code can no longer receive them.
 
 C++0x is required to compile the library. Only g++ 4.5 or above, or Visual C++
 2010 are supported.

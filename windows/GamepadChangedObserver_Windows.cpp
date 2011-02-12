@@ -96,6 +96,15 @@ namespace GP {
             reinterpret_cast<Gamepad_Windows*>(lparam)->handle_input_report(wparam);
             return TRUE;
 
+        case WM_USER + 0x493e:
+            {
+                auto detail = reinterpret_cast<PSP_DEVICE_INTERFACE_DETAIL_DATA>(lparam);
+                this_ = static_cast<GamepadChangedObserver_Windows*>( GetProp(hwnd, _T("com.auraHT.gamepad.this_")) );
+                this_->insert_device_with_path(hwnd, detail->DevicePath);
+                free(detail);
+                return TRUE;
+            }
+
         case WM_DEVICECHANGE:
         {
             PDEV_BROADCAST_HDR event_data = reinterpret_cast<PDEV_BROADCAST_HDR>(lparam);
@@ -155,9 +164,6 @@ namespace GP {
             SP_DEVICE_INTERFACE_DATA device_info_data;
             device_info_data.cbSize = sizeof(device_info_data);
 
-            std::vector<char> buffer;
-            PSP_DEVICE_INTERFACE_DETAIL_DATA detail;
-
             SP_DEVINFO_DATA devinfo;
             devinfo.cbSize = sizeof(devinfo);
 
@@ -166,16 +172,12 @@ namespace GP {
                 DWORD required_size = 0, expected_size = 0;
                 SetupDiGetDeviceInterfaceDetail(dev_info.handle, &device_info_data, NULL, 0, &expected_size, NULL);
 
-                // expand buffer if necessary.
-                if (buffer.size() < expected_size) {
-                    buffer.resize(expected_size);
-                    detail = reinterpret_cast<decltype(detail)>(&buffer[0]);
-                }
+                auto detail = static_cast<PSP_DEVICE_INTERFACE_DETAIL_DATA>(malloc(expected_size));
 
                 // populate the list of devices.
                 detail->cbSize = sizeof(*detail);
                 if (SetupDiGetDeviceInterfaceDetail(dev_info.handle, &device_info_data, detail, expected_size, &required_size, NULL)) {
-                    this->insert_device_with_path(_hwnd, detail->DevicePath);
+                    PostMessage(_hwnd, WM_USER + 0x493e, 0, reinterpret_cast<LPARAM>(detail));
                 }
             }
         }

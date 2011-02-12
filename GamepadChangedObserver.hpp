@@ -68,15 +68,12 @@ namespace GP {
         
     public:
         // remember to use 'delete' to kill the observer.
-        static GamepadChangedObserver* create(void* self, Callback callback, void* eventloop, bool start_observing = true) {
+        static GamepadChangedObserver* create(void* self, Callback callback, void* eventloop) {
             GamepadChangedObserver* retval = create_impl(self, callback, eventloop);
-            if (start_observing)
-                retval->observe_impl();
+            retval->observe_impl();
             return retval;
         }
 
-        void observe() { this->observe_impl(); }
-        
         virtual ~GamepadChangedObserver() {}
     };
     

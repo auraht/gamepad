@@ -261,7 +261,7 @@ namespace GP {
             }
         }
 
-        if (errcode) {
+        if (errcode != ERROR_SUCCESS && errcode != ERROR_DEVICE_NOT_CONNECTED) {
             printf("Reader thread exited with error code %d.\n", errcode);
             //## TODO: Maybe we should throw an exception?
         }
