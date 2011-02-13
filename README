@@ -13,6 +13,8 @@ i.e.
 
  - Integer output and feature support.
 
+ - (Currently Windows only) Simulating the gamepad using keyboard and mouse.
+
  - Uses BSD or more flexible license.
 
 The library currently has the following limitations:

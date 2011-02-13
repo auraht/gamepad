@@ -27,6 +27,9 @@
     <ClCompile Include="..\..\..\Gamepad.inc.cpp">
       <Filter>Header Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\SimulatedGamepad_Windows.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\GamepadChangedObserver_Windows.hpp">
@@ -54,6 +57,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Transaction.hpp">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\SimulatedGamepad_Windows.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

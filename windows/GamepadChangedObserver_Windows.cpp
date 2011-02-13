@@ -33,6 +33,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "GamepadChangedObserver_Windows.hpp"
 #include "Gamepad_Windows.hpp"
+#include "SimulatedGamepad_Windows.hpp"
 #include "../Exception.hpp"
 
 #include <unordered_map>
@@ -73,17 +74,24 @@ namespace GP {
         auto gamepad_ptr = Gamepad_Windows::insert(hwnd, path);
         if (gamepad_ptr) {
             //## TODO: Do we need a lock here?
-            std::tr1::shared_ptr<Gamepad_Windows> gamepad (gamepad_ptr);
+            std::shared_ptr<Gamepad_Windows> gamepad (gamepad_ptr);
             HANDLE hdevice = gamepad_ptr->device_handle();
             _active_devices.insert(std::make_pair(hdevice, gamepad));
             this->handle_event(gamepad_ptr, GamepadState::attached);
         }
     }
 
+    void GamepadChangedObserver_Windows::insert_simulated_gamepad(HWND hwnd) {
+        _simulated_gamepad = new SimulatedGamepad_Windows(hwnd);
+        this->handle_event(_simulated_gamepad, GamepadState::attached);
+    }
+
     LRESULT CALLBACK GamepadChangedObserver_Windows::message_handler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         GamepadChangedObserver_Windows* this_;
         WNDPROC lastWndProc;
         
+#define GET_THIS this_ = static_cast<GamepadChangedObserver_Windows*>( GetProp(hwnd, _T("com.auraHT.gamepad.this_")) )
+
         switch (msg) {
         case WM_NCDESTROY:
             lastWndProc = static_cast<WNDPROC>( RemoveProp(hwnd, _T("com.auraHT.gamepad.lastWndProc")) );
@@ -99,11 +107,29 @@ namespace GP {
         case WM_USER + 0x493e:
             {
                 auto detail = reinterpret_cast<PSP_DEVICE_INTERFACE_DETAIL_DATA>(lparam);
-                this_ = static_cast<GamepadChangedObserver_Windows*>( GetProp(hwnd, _T("com.auraHT.gamepad.this_")) );
-                this_->insert_device_with_path(hwnd, detail->DevicePath);
-                free(detail);
+                GET_THIS;
+                if (detail != NULL) {
+                    this_->insert_device_with_path(hwnd, detail->DevicePath);
+                    free(detail);
+                } else {
+                    this_->insert_simulated_gamepad(hwnd);
+                }
                 return TRUE;
             }
+
+        case WM_KEYDOWN:
+            if (lparam & 1<<30)
+                // ^ make sure we don't catch autorepeated keydowns.
+                goto default_case;
+            else {
+                // fallthrough
+            }
+
+        case WM_KEYUP:
+            GET_THIS;
+            if (this_->_simulated_gamepad)
+                this_->_simulated_gamepad->handle_key_event(wparam, msg == WM_KEYDOWN);
+            goto default_case;
 
         case WM_DEVICECHANGE:
         {
@@ -115,7 +141,7 @@ namespace GP {
             case DBT_DEVICEARRIVAL:
                 // plugged in.
                 if (event_data->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
-                    this_ = static_cast<GamepadChangedObserver_Windows*>( GetProp(hwnd, _T("com.auraHT.gamepad.this_")) );
+                    GET_THIS;
                     auto dev_path = reinterpret_cast<PDEV_BROADCAST_DEVICEINTERFACE>(event_data)->dbcc_name;
                     this_->insert_device_with_path(hwnd, dev_path);
                     return TRUE;
@@ -127,7 +153,7 @@ namespace GP {
                 if (event_data->dbch_devicetype == DBT_DEVTYP_HANDLE) {
                     HANDLE hdevice = reinterpret_cast<PDEV_BROADCAST_HANDLE>(event_data)->dbch_handle;
                     //## TODO: Do we need a lock here?
-                    this_ = static_cast<GamepadChangedObserver_Windows*>( GetProp(hwnd, _T("com.auraHT.gamepad.this_")) );
+                    GET_THIS;
                     auto it = this_->_active_devices.find(hdevice);
                     this_->handle_event(it->second.get(), GamepadState::detaching);
                     this_->_active_devices.erase(it);
@@ -138,6 +164,7 @@ namespace GP {
         }
         // fall-through
         
+        default_case:
         default:
             lastWndProc = static_cast<WNDPROC>( GetProp(hwnd, _T("com.auraHT.gamepad.lastWndProc")) );
             break;
@@ -199,6 +226,9 @@ namespace GP {
         // find all already plugged-in devices.
         this->populate_existing_devices(&hid_guid);
 
+        // insert simulated device.
+        PostMessage(_hwnd, WM_USER + 0x493e, 0, 0);
+
         // listen for hot-plugged devices
         DEV_BROADCAST_DEVICEINTERFACE filter;
         filter.dbcc_size = sizeof(filter);
@@ -216,6 +246,8 @@ namespace GP {
 
             RemoveProp(_hwnd, _T("com.auraHT.gamepad.this_"));
         }
+        delete _simulated_gamepad;
+        _simulated_gamepad = NULL;
     }
 
     __declspec(dllexport) GamepadChangedObserver* GamepadChangedObserver::create_impl(void* self, Callback callback, void* eventloop) {

@@ -79,6 +79,7 @@
     </ClCompile>
     <ClCompile Include="..\..\GamepadChangedObserver_Windows.cpp" />
     <ClCompile Include="..\..\Gamepad_Windows.cpp" />
+    <ClCompile Include="..\..\SimulatedGamepad_Windows.cpp" />
     <ClCompile Include="..\..\Timer_Windows.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -91,6 +92,7 @@
     <ClInclude Include="..\..\GamepadChangedObserver_Windows.hpp" />
     <ClInclude Include="..\..\Gamepad_Windows.hpp" />
     <ClInclude Include="..\..\Shared.hpp" />
+    <ClInclude Include="..\..\SimulatedGamepad_Windows.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\..\resource.rc" />
