@@ -44,17 +44,15 @@ namespace GP {
        }
     }
 
-    SimulatedGamepad_Windows::SimulatedGamepad_Windows(HWND hwnd) : _hwnd(hwnd), _timer(0) {
-        int speed = 10, scrolllines = 3;
-        SystemParametersInfo(SPI_GETMOUSESPEED, 0, &speed, 0);
-        SystemParametersInfo(SPI_GETWHEELSCROLLLINES, 0, &scrolllines, 0);
+    static const UINT TIMESTEP = 13;
 
-        this->set_bounds_for_axis(Axis::X, -speed, speed);
-        this->set_bounds_for_axis(Axis::Y, -speed, speed);
-        this->set_bounds_for_axis(Axis::Z, -scrolllines, scrolllines);
+    SimulatedGamepad_Windows::SimulatedGamepad_Windows(HWND hwnd) : _hwnd(hwnd), _timer(0) {
+        this->set_bounds_for_axis(Axis::X, -1, 1);
+        this->set_bounds_for_axis(Axis::Y, -1, 1);
+        this->set_bounds_for_axis(Axis::Z, -1, 1);
 
         GetCursorPos(&_last_point);
-        _timer = SetTimer(hwnd, reinterpret_cast<UINT_PTR>(this), USER_TIMER_MINIMUM, &SimulatedGamepad_Windows::cursor_timer);
+        _timer = SetTimer(hwnd, reinterpret_cast<UINT_PTR>(this), TIMESTEP, &SimulatedGamepad_Windows::cursor_timer);
     }
 
     void CALLBACK SimulatedGamepad_Windows::cursor_timer(HWND hwnd, UINT msg, UINT_PTR id_event, DWORD timestamp) {
@@ -70,7 +68,7 @@ namespace GP {
 
         this_->set_axis_value(Axis::X, delta_x);
         this_->set_axis_value(Axis::Y, delta_y);
-        this_->handle_axes_change(USER_TIMER_MINIMUM * 1000000);
+        this_->handle_axes_change(TIMESTEP * 1000000);
     }
 
     void SimulatedGamepad_Windows::handle_key_event(UINT keycode, bool is_pressed) {
