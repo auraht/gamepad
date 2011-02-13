@@ -44,11 +44,11 @@ namespace GP {
        }
     }
 
-    static const UINT TIMESTEP = 13;
+    static const UINT TIMESTEP = USER_TIMER_MINIMUM;
 
     SimulatedGamepad_Windows::SimulatedGamepad_Windows(HWND hwnd) : _hwnd(hwnd), _timer(0) {
-        this->set_bounds_for_axis(Axis::X, -1, 1);
-        this->set_bounds_for_axis(Axis::Y, -1, 1);
+        this->set_bounds_for_axis(Axis::X, -3, 3);
+        this->set_bounds_for_axis(Axis::Y, -3, 3);
         this->set_bounds_for_axis(Axis::Z, -1, 1);
 
         GetCursorPos(&_last_point);
