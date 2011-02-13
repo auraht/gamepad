@@ -109,6 +109,7 @@ namespace GP {
         void (*_associated_deleter)(void* _object);
         
         long _centroid[static_cast<int>(Axis::count)];
+        long _bounds[static_cast<int>(Axis::count)];
         long _cached_axis_values[static_cast<int>(Axis::count)];
         AxisState _old_axis_state[static_cast<int>(Axis::count)];
         AxisState _old_axis_group_state[static_cast<int>(AxisGroup::group_count)];

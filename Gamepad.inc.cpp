@@ -89,6 +89,7 @@ namespace GP {
                     _axis_group_state_changed_self(NULL), _axis_group_state_changed_callback(NULL),
                     _associated_object(NULL), _associated_deleter(NULL) {
         memset(_centroid, 0, sizeof(_centroid));
+        memset(_bounds, 0, sizeof(_bounds));
         memset(_cached_axis_values, 0, sizeof(_cached_axis_values));
         memset(_old_axis_state, 0, sizeof(_old_axis_state));
         memset(_old_axis_group_state, 0, sizeof(_old_axis_group_state));
@@ -98,6 +99,7 @@ namespace GP {
         if (valid(axis)) {
             int index = static_cast<int>(axis);
             _centroid[index] = (maximum + minimum + 1) / 2;
+            _bounds[index] = (maximum - minimum + 1) / 2;
             _cached_axis_values[index] = 0;
         }
     }
@@ -191,7 +193,7 @@ namespace GP {
 
     
     inline long Gamepad::axis_bound(Axis axis) const {
-        return valid(axis) ? _centroid[static_cast<int>(axis)] : 0;
+        return valid(axis) ? _bounds[static_cast<int>(axis)] : 0;
     }
     
     inline void Gamepad::associate(void* object, void (*deleter)(void*)) {
