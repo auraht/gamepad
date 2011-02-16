@@ -45,7 +45,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <SetupAPI.h>
 #include <Dbt.h>
 #include <tchar.h>
-
+#include <Windowsx.h>
 
 static struct HIDDLL2 {
     HMODULE _module;
@@ -129,6 +129,15 @@ namespace GP {
             GET_THIS;
             if (this_->_simulated_gamepad)
                 this_->_simulated_gamepad->handle_key_event(wparam, msg == WM_KEYDOWN);
+            goto default_case;
+
+        case WM_MOUSEMOVE:
+            GET_THIS;
+            if (this_->_simulated_gamepad) {
+                int x = GET_X_LPARAM(lparam);
+                int y = GET_Y_LPARAM(lparam);
+                this_->_simulated_gamepad->handle_mousemove_event(x, y);
+            }
             goto default_case;
 
         case WM_DEVICECHANGE:
