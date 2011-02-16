@@ -43,8 +43,8 @@ namespace GP {
         HWND _hwnd;
         UINT_PTR _timer;
         POINT _last_point;
-        LARGE_INTEGER _perf_freq;
-        LARGE_INTEGER _last_perf_count;
+//      LARGE_INTEGER _perf_freq;
+//      LARGE_INTEGER _last_perf_count;
 
         static void CALLBACK mouse_stop_timer(HWND hwnd, UINT msg, UINT_PTR id_event, DWORD timestamp);
 

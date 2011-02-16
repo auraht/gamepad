@@ -52,9 +52,11 @@ namespace GP {
         this->set_bounds_for_axis(Axis::Z, -1, 1);
 
         GetCursorPos(&_last_point);
+        /*
         _perf_freq.QuadPart = 0;
         _last_perf_count.QuadPart = 0;
         QueryPerformanceFrequency(&_perf_freq);
+        */
 
         _timer = reinterpret_cast<UINT_PTR>(this);
     }
@@ -67,19 +69,28 @@ namespace GP {
         _last_point.y = y;
         this->set_axis_value(Axis::X, delta_x);
         this->set_axis_value(Axis::Y, delta_y);
+        /*
         LARGE_INTEGER last_count = _last_perf_count;
         LARGE_INTEGER cur_count;
         QueryPerformanceCounter(&cur_count);
         _last_perf_count = cur_count;
         if (last_count.QuadPart) {
             auto nanoseconds_elapsed = (cur_count.QuadPart - last_count.QuadPart) * 1000000000 / _perf_freq.QuadPart;
+            double time_rescale = 25.0e6 / nanoseconds_elapsed;
+
+            int delta_x = (int)((x - _last_point.x) * time_rescale + 0.5);
+            int delta_y = (int)((y - _last_point.y) * time_rescale + 0.5);
+            */
+
+            auto nanoseconds_elapsed = 20000000;    // 20 millisec.
+
             this->handle_axes_change(nanoseconds_elapsed);
-        }
+        // }
     }
 
     void CALLBACK SimulatedGamepad_Windows::mouse_stop_timer(HWND hwnd, UINT msg, UINT_PTR id_event, DWORD timestamp) {
         auto this_ = reinterpret_cast<SimulatedGamepad_Windows*>(id_event);
-        this_->_last_perf_count.QuadPart = 0;
+//      this_->_last_perf_count.QuadPart = 0;
         
         this_->set_axis_value(Axis::X, 0);
         this_->set_axis_value(Axis::Y, 0);
