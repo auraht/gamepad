@@ -52,7 +52,7 @@ namespace GP {
 
     class GamepadChangedObserver {
     public:            
-        typedef void (*Callback)(void* self, Gamepad* gamepad, GamepadState state);
+        typedef void (*Callback)(void* self, const GamepadChangedObserver* observer, Gamepad* gamepad, GamepadState state);
     
     private:
         struct Impl;
@@ -62,10 +62,39 @@ namespace GP {
         void* _self;
         Callback _callback;
 
+    public:
+        struct const_iterator : public std::iterator<std::forward_iterator_tag, Gamepad> {
+        private:
+            struct Impl;
+            Impl* _impl;
+            const_iterator(Impl* impl);
+
+        public:
+            typedef std::forward_iterator_tag iterator_tag;
+        
+            const_iterator& operator++();
+            const_iterator operator++(int);
+            
+            Gamepad& operator*() const;
+            Gamepad& operator->() const { return **this; }
+            
+            const_iterator() : _impl(NULL) {}
+            ~const_iterator();
+            
+            const_iterator(const const_iterator& other);
+            const_iterator(const_iterator&& other);
+            
+            bool operator==(const const_iterator& other) const;
+            bool operator!=(const const_iterator& other) const;
+            
+            friend class GamepadChangedObserver;
+        };
+        typedef const_iterator iterator;
+
     private:        
         void handle_event(Gamepad* gamepad, GamepadState state) const {
             if (_callback)
-                _callback(_self, gamepad, state);
+                _callback(_self, this, gamepad, state);
         }
                 
         friend struct Impl;
@@ -76,6 +105,14 @@ namespace GP {
         }
         
         ~GamepadChangedObserver();
+        
+        GamepadChangedObserver(const GamepadChangedObserver&) = delete;
+        GamepadChangedObserver(GamepadChangedObserver&&) = delete;
+        
+        const_iterator cbegin() const;
+        const_iterator cend() const;
+        iterator begin() const { return this->cbegin(); }
+        iterator end() const { return this->cend(); }
     };
     
 }

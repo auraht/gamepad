@@ -77,14 +77,12 @@ namespace GP {
     
     
     struct GamepadChangedObserver::Impl {
-    private:
         IOHIDManager _manager;
         CFRunLoopRef _runloop;
         std::unordered_map<IOHIDDeviceRef, std::shared_ptr<Gamepad>> _active_devices;
         // ^ we need to use a shared_ptr<> instead of unique_ptr<> because of
         //   http://gcc.gnu.org/bugzilla/show_bug.cgi?id=44436 
         
-    public:
         void set_observe_joysticks();
         void add_active_device(IOHIDDeviceRef device, GamepadChangedObserver* observer);
         void remove_active_device(IOHIDDeviceRef device, GamepadChangedObserver* observer);
@@ -172,5 +170,62 @@ namespace GP {
     GamepadChangedObserver::~GamepadChangedObserver() {
         delete _impl;
     }
+    
+
+    
+    struct GamepadChangedObserver::const_iterator::Impl {
+        std::unordered_map<IOHIDDeviceRef, std::shared_ptr<Gamepad>>::const_iterator cit;
+        
+        Impl(std::unordered_map<IOHIDDeviceRef, std::shared_ptr<Gamepad>>::const_iterator it)
+            : cit{it} {}
+    };
+    
+    auto GamepadChangedObserver::cbegin() const -> const_iterator {
+        return {new const_iterator::Impl(_impl->_active_devices.cbegin())};
+    }
+    
+    auto GamepadChangedObserver::cend() const -> const_iterator {
+        return {new const_iterator::Impl(_impl->_active_devices.cend())};
+    }
+
+    auto GamepadChangedObserver::const_iterator::operator++() -> const_iterator& {
+        ++ _impl->cit;
+        return *this;
+    }
+    
+    auto GamepadChangedObserver::const_iterator::operator++(int) -> const_iterator {
+        auto newImpl = new Impl(_impl->cit);
+        ++ _impl->cit;
+        return {newImpl};
+    }
+    
+    Gamepad& GamepadChangedObserver::const_iterator::operator*() const {
+        return *(_impl->cit->second);
+    }
+    
+    GamepadChangedObserver::const_iterator::~const_iterator() {
+        delete _impl;
+    }
+    
+    GamepadChangedObserver::const_iterator::const_iterator(const const_iterator& other)
+        : _impl{new Impl(other._impl->cit)} {}
+    
+    GamepadChangedObserver::const_iterator::const_iterator(const_iterator&& other) {
+        _impl = other._impl;
+        delete other._impl;
+        other._impl = NULL;
+    }
+    
+    GamepadChangedObserver::const_iterator::const_iterator(Impl* impl)
+        : _impl{impl} {}
+    
+    bool GamepadChangedObserver::const_iterator::operator==(const const_iterator& other) const {
+        return _impl->cit == other._impl->cit;
+    }
+    
+    bool GamepadChangedObserver::const_iterator::operator!=(const const_iterator& other) const {
+        return _impl->cit != other._impl->cit;
+    }
+    
 }
 

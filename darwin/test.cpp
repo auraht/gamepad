@@ -34,6 +34,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "GamepadChangedObserver.hpp"
 #include "Gamepad.hpp"
 #include <memory>
+#include <algorithm>
 
 struct Context {
     CFRunLoopSourceRef rls;
@@ -66,7 +67,7 @@ void gamepad_button_changed(GP::Gamepad* gamepad, GP::Button button, bool is_pre
 }
 
 
-void gamepad_state_changed(void* self, GP::Gamepad* gamepad, GP::GamepadState state) {
+void gamepad_state_changed(void* self, const GP::GamepadChangedObserver* observer, GP::Gamepad* gamepad, GP::GamepadState state) {
     if (state == GP::GamepadState::detaching) {
         printf("Gamepad %p is detached, quitting.\n", gamepad);
         
@@ -75,6 +76,10 @@ void gamepad_state_changed(void* self, GP::Gamepad* gamepad, GP::GamepadState st
         CFRunLoopSourceSignal(ctx->rls);
     } else {
         printf("Gamepad %p is attached.\n", gamepad);
+        
+        std::for_each(observer->cbegin(), observer->cend(), [](GP::Gamepad& gamepad) {
+            printf(" - Gamepad %p\n", &gamepad);
+        });
         
         gamepad->set_axis_changed_callback(gamepad_axis_changed);
         gamepad->set_axis_state_changed_callback(gamepad_axis_state_changed);
@@ -94,8 +99,8 @@ int main () {
     
     Context ctx = {rls, false};
     
-    std::unique_ptr<GP::GamepadChangedObserver> observer (new GP::GamepadChangedObserver(&ctx, gamepad_state_changed, rl));
-
+    GP::GamepadChangedObserver observer (&ctx, gamepad_state_changed, rl);
+    
     while (CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0, true)) {
         if (ctx.quit)
             break;
