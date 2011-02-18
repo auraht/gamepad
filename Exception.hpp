@@ -34,13 +34,19 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define EXCEPTION_HPP_rvogj7mrh896n7b9 1
 
 #include <exception>
+#include <cstring>
 
 namespace GP {
     struct BaseException : public std::exception {
     private:
-        const char* _message;
+        char _message[64];
     protected:
-        BaseException(const char* message) : _message(message) {}
+        void set_message(const char* message) {
+            strncpy(_message, message, sizeof(_message)-1);
+            _message[sizeof(_message)-1] = '\0';
+        }
+        BaseException(const char* message) { this->set_message(message); }
+        BaseException() {}
     public:
         const char* what() const throw() { return _message; }
     };
@@ -51,6 +57,14 @@ namespace GP {
     
     struct NoEventloopException : public BaseException {
         NoEventloopException() : BaseException("Cannot obtain a handle to the system event loop.") {}
+    };
+    
+    struct SystemErrorException : public BaseException {
+        SystemErrorException(int errcode) {
+            char msg[64];
+            snprintf(msg, 64, "System error %d (0x%x)", errcode, errcode);
+            this->set_message(msg);
+        }
     };
 }
 

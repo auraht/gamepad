@@ -34,47 +34,48 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define GAMEPAD_CHANGED_OBSERVER_HPP_rskkt3ru5raa714i 1
 
 #include "Compatibility.hpp"
+#include <iterator>
 
+#ifndef _AURAHT_FRIENDS
+#define _AURAHT_FRIENDS
+#endif
 
 namespace GP {
     class Gamepad;
+
 
     ENUM_CLASS GamepadState {
         attached,
         detaching
     };
 
+
     class GamepadChangedObserver {
-    public:        
-    
+    public:            
         typedef void (*Callback)(void* self, Gamepad* gamepad, GamepadState state);
     
     private:
+        struct Impl;
+        Impl* _impl;
+        void create_impl(void* eventloop);
+        
         void* _self;
         Callback _callback;
-        
-    protected:
-        virtual void observe_impl() = 0;
-        
+
+    private:        
         void handle_event(Gamepad* gamepad, GamepadState state) const {
             if (_callback)
                 _callback(_self, gamepad, state);
         }
-        
-        GamepadChangedObserver(void* self, Callback callback)
-            : _self(self), _callback(callback) {}
-        
-        static EXPORT GamepadChangedObserver* create_impl(void* self, Callback callback, void* eventloop);
+                
+        friend struct Impl;
         
     public:
-        // remember to use 'delete' to kill the observer.
-        static GamepadChangedObserver* create(void* self, Callback callback, void* eventloop) {
-            GamepadChangedObserver* retval = create_impl(self, callback, eventloop);
-            retval->observe_impl();
-            return retval;
+        GamepadChangedObserver(void* self, Callback callback, void* eventloop) : _self(self), _callback(callback) {
+            this->create_impl(eventloop);
         }
-
-        virtual ~GamepadChangedObserver() {}
+        
+        ~GamepadChangedObserver();
     };
     
 }

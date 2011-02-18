@@ -31,91 +31,146 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#include "GamepadChangedObserver_Darwin.hpp"
-#include "Gamepad_Darwin.hpp"
+#include "../GamepadChangedObserver.hpp"
+#include "../Gamepad.hpp"
 #include "../Exception.hpp"
 
+#include "Shared.hpp"
+#include <IOKit/hid/IOHIDManager.h>
 #include <algorithm>
+#include <exception>
+#include <unordered_map>
+#include <memory>
+
 
 namespace GP {
-    // the function of this function is to create the matcher dictionary given
-    // the usage page and usage.
-    static CFDictionaryRef create_usage_matcher(int usage_page, int usage) {
-        CFTypeRef keys[] = {
-            CFSTR(kIOHIDDeviceUsagePageKey), 
-            CFSTR(kIOHIDDeviceUsageKey)
-        };
-        CFTypeRef values[] = {
-            CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &usage_page), 
-            CFNumberCreate(kCFAllocatorDefault, kCFNumberIntType, &usage)
-        };
-        const int values_count = sizeof(values)/sizeof(*values);
+    struct IOHIDManager : CFType<IOHIDManagerRef> {
+        IOHIDManager() : CFType(
+            IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone)
+        ) {}
         
-        CFDictionaryRef retval = CFDictionaryCreate(kCFAllocatorDefault, keys, values, values_count, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-        std::for_each(values, values+values_count, CFRelease);
-            
-        return retval;
+        void set_device_matching_multiple(const CFArray& array) {
+            IOHIDManagerSetDeviceMatchingMultiple(value, array.value);
+        }
+        void register_device_matched(IOHIDDeviceCallback callback, void* context) {
+            IOHIDManagerRegisterDeviceMatchingCallback(value, callback, context);
+        }
+        void register_device_removal(IOHIDDeviceCallback callback, void* context) {
+            IOHIDManagerRegisterDeviceRemovalCallback(value, callback, context);
+        }
+        
+        void schedule(CFRunLoopRef runloop) {
+            IOHIDManagerScheduleWithRunLoop(value, runloop, kCFRunLoopDefaultMode);
+        }
+        void open() {
+            IOReturn retval = IOHIDManagerOpen(value, kIOHIDOptionsTypeNone);
+            if (retval != kIOReturnSuccess)
+                throw SystemErrorException(retval);
+        }
+        void unschedule(CFRunLoopRef runloop) {
+            IOHIDManagerUnscheduleFromRunLoop(value, runloop, kCFRunLoopDefaultMode);
+        }
+        void close() {
+            IOHIDManagerClose(value, kIOHIDOptionsTypeNone);
+        }
+    };
+    
+    
+    struct GamepadChangedObserver::Impl {
+    private:
+        IOHIDManager _manager;
+        CFRunLoopRef _runloop;
+        std::unordered_map<IOHIDDeviceRef, std::shared_ptr<Gamepad>> _active_devices;
+        // ^ we need to use a shared_ptr<> instead of unique_ptr<> because of
+        //   http://gcc.gnu.org/bugzilla/show_bug.cgi?id=44436 
+        
+    public:
+        void set_observe_joysticks();
+        void add_active_device(IOHIDDeviceRef device, GamepadChangedObserver* observer);
+        void remove_active_device(IOHIDDeviceRef device, GamepadChangedObserver* observer);
+        
+        Impl(GamepadChangedObserver* observer, CFRunLoopRef runloop);
+        ~Impl();
+        
+        static void matched_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device);
+        static void removing_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device);
+    };
+    
+    GamepadChangedObserver::Impl::Impl(GamepadChangedObserver* observer, CFRunLoopRef runloop) {
+        this->set_observe_joysticks();
+        _manager.register_device_matched(&Impl::matched_device_cb, observer);
+        _manager.register_device_removal(&Impl::removing_device_cb, observer);
+        
+        _runloop = runloop;
+        _manager.schedule(runloop);
+        _manager.open();
     }
     
-    // this method is called whenever a device is attached.
-    void GamepadChangedObserver_Darwin::matched_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device) {
-        auto this_ = static_cast<GamepadChangedObserver_Darwin*>(context);
-        
-        auto gamepad = new Gamepad_Darwin(device);
-        
-        this_->_active_devices.insert({device, std::shared_ptr<Gamepad_Darwin>(gamepad)});
-        this_->handle_event(gamepad, GamepadState::attached);
+    GamepadChangedObserver::Impl::~Impl() {
+        _manager.unschedule(_runloop);
+        _manager.register_device_matched(NULL, NULL);
+        _manager.register_device_removal(NULL, NULL);
+        _manager.close();
     }
     
-    // this method is called whenever a device is removed.
-    void GamepadChangedObserver_Darwin::removing_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device) {
-        auto this_ = static_cast<GamepadChangedObserver_Darwin*>(context);
-        auto it = this_->_active_devices.find(device);
-        Gamepad_Darwin* gamepad = it->second.get();
-        this_->handle_event(gamepad, GamepadState::detaching);
-        this_->_active_devices.erase(it);
+    void GamepadChangedObserver::Impl::add_active_device(IOHIDDeviceRef device, GamepadChangedObserver* observer) {
+        auto gamepad = std::make_shared<Gamepad>(device);
+        _active_devices.insert({device, gamepad});
+        observer->handle_event(gamepad.get(), GamepadState::attached);
+    }
+    
+    void GamepadChangedObserver::Impl::remove_active_device(IOHIDDeviceRef device, GamepadChangedObserver* observer) {
+        auto it = _active_devices.find(device);
+        auto gamepad = it->second.get();
+        observer->handle_event(gamepad, GamepadState::detaching);
+        _active_devices.erase(it);
     }
     
     
-    void GamepadChangedObserver_Darwin::observe_impl() {
-        _manager = IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone);
+    void GamepadChangedObserver::Impl::matched_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device) {
+        auto this_ = static_cast<GamepadChangedObserver*>(context);
+        this_->_impl->add_active_device(device, this_);        
+    }
+    
+    void GamepadChangedObserver::Impl::removing_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device) {
+        auto this_ = static_cast<GamepadChangedObserver*>(context);
+        this_->_impl->remove_active_device(device, this_);
+    }
+    
+    void GamepadChangedObserver::Impl::set_observe_joysticks() {
+        CFNumber generic_desktop_number (kHIDPage_GenericDesktop);
         
+        CFTypeRef keys[] = {CFSTR(kIOHIDDeviceUsagePageKey), CFSTR(kIOHIDDeviceUsageKey)};
+        CFTypeRef values[2] = {generic_desktop_number.value};
+
         // we only care about joysticks, gamepads and multi-axis controllers,
         // just like SDL.
-        CFTypeRef values[] = {
-            create_usage_matcher(kHIDPage_GenericDesktop, kHIDUsage_GD_Joystick),
-            create_usage_matcher(kHIDPage_GenericDesktop, kHIDUsage_GD_GamePad),
-            create_usage_matcher(kHIDPage_GenericDesktop, kHIDUsage_GD_MultiAxisController)
-        };
-        const int values_count = sizeof(values)/sizeof(*values);
+        CFNumber joystick_number (kHIDUsage_GD_Joystick);            
+        values[1] = joystick_number.value;
+        CFDictionary joystick (keys, values, 2);
         
-        // tell the HID manager to observe those 3 kinds of devices.
-        CFArrayRef alternatives = CFArrayCreate(kCFAllocatorDefault, values, values_count, &kCFTypeArrayCallBacks);
-        std::for_each(values, values+values_count, CFRelease);
-        IOHIDManagerSetDeviceMatchingMultiple(_manager, alternatives);
-        CFRelease(alternatives);
+        CFNumber game_pad_number (kHIDUsage_GD_GamePad);
+        values[1] = game_pad_number.value;
+        CFDictionary game_pad (keys, values, 2);
         
-        // tell the HID manager to watch for attachment and removal.
-        IOHIDManagerRegisterDeviceMatchingCallback(_manager, GamepadChangedObserver_Darwin::matched_device_cb, this);
-        IOHIDManagerRegisterDeviceRemovalCallback(_manager, GamepadChangedObserver_Darwin::removing_device_cb, this);
+        CFNumber multi_axis_ctrler_number (kHIDUsage_GD_MultiAxisController);
+        values[1] = multi_axis_ctrler_number.value;
+        CFDictionary multi_axis_ctrler (keys, values, 2);
+        
+        CFTypeRef alt_values[] = {joystick.value, game_pad.value, multi_axis_ctrler.value};
+        CFArray alternatives (alt_values, sizeof(alt_values)/sizeof(*alt_values));
 
-        // begin observing.
-        IOHIDManagerScheduleWithRunLoop(_manager, _runloop, kCFRunLoopDefaultMode);
-        IOHIDManagerOpen(_manager, kIOHIDOptionsTypeNone);
+        // tell the HID manager to observe those 3 kinds of devices.
+        _manager.set_device_matching_multiple(alternatives);
     }
     
-    void GamepadChangedObserver_Darwin::unobserve_impl() {
-        IOHIDManagerUnscheduleFromRunLoop(_manager, _runloop, kCFRunLoopDefaultMode);
-        IOHIDManagerRegisterDeviceMatchingCallback(_manager, NULL, NULL);
-        IOHIDManagerRegisterDeviceRemovalCallback(_manager, NULL, NULL);
-        IOHIDManagerClose(_manager, kIOHIDOptionsTypeNone);
-        CFRelease(_manager);
-        _manager = NULL;
-        _active_devices.clear();
+    
+    void GamepadChangedObserver::create_impl(void* eventloop) {
+        _impl = new Impl(this, static_cast<CFRunLoopRef>(eventloop));
     }
     
-    GamepadChangedObserver* GamepadChangedObserver::create_impl(void* self, Callback callback, void* eventloop) {
-        return new GamepadChangedObserver_Darwin(self, callback, eventloop);
+    GamepadChangedObserver::~GamepadChangedObserver() {
+        delete _impl;
     }
 }
 

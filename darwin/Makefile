@@ -29,12 +29,12 @@
 # SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 
-OBJECTS=Gamepad_Darwin.o GamepadChangedObserver_Darwin.o Timer_Darwin.o
+OBJECTS=../Gamepad.o Gamepad_Darwin.o GamepadChangedObserver_Darwin.o
 
 CXX=g++-4.5
 CPPFLAGS=
 CXXFLAGS=-std=c++0x -pedantic -Wall -Wextra -O3
-LDFLAGS=-framework CoreFoundation -framework IOKit -dynamiclib 
+LDFLAGS=-framework CoreFoundation -framework IOKit -dynamiclib -current_version 0.6.0
 
 .PHONY: all clean
 
@@ -45,9 +45,6 @@ clean:
 	$(RM) $(OBJECTS)
 
 test: test.cpp libgamepad.dylib
-	$(CXX) -o $@ $(CXXFLAGS) -framework CoreFoundation -L. -lgamepad -iquote .. $<
-
-test_timer: test_timer.cpp libgamepad.dylib
 	$(CXX) -o $@ $(CXXFLAGS) -framework CoreFoundation -L. -lgamepad -iquote .. $<
 
 libgamepad.dylib: $(OBJECTS)

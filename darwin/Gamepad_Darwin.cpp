@@ -31,54 +31,121 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#include "Gamepad_Darwin.hpp"
 #include "../Transaction.hpp"
 #include <CoreFoundation/CoreFoundation.h>
-#include <tr1/unordered_map>
+#include <unordered_map>
 #include <algorithm>
 #include <mach/mach_time.h>
+#include "Shared.hpp"
+#include <IOKit/hid/IOHIDManager.h>
+#include "../Gamepad.hpp"
 
-namespace GP {
-    struct Ctx {
-        Gamepad_Darwin* gamepad;
-        CFMutableArrayRef restricted_elements;
-    };
+
+struct IOHIDTransaction : CFType<IOHIDTransactionRef> {
+    IOHIDTransaction(IOHIDDeviceRef device, IOHIDTransactionDirectionType direction) : CFType(
+        IOHIDTransactionCreate(kCFAllocatorDefault, device, direction, 0)
+    ) {}
     
-    void Gamepad_Darwin::collect_axis_bounds(const void* element_, void* self) {
-        Ctx* ctx = static_cast<Ctx*>(self);
-        IOHIDElementRef element = static_cast<IOHIDElementRef>(const_cast<void*>(element_));
-        
-        int usage_page = IOHIDElementGetUsagePage(element);
-        int usage = IOHIDElementGetUsage(element);
-        Axis axis = axis_from_usage(usage_page, usage);
-        auto elem_type = IOHIDElementGetType(element);
-        
-        if (axis != Axis::invalid) {
-            ctx->gamepad->set_bounds_for_axis(axis, IOHIDElementGetLogicalMin(element), IOHIDElementGetLogicalMax(element));
-        } else if (elem_type != kIOHIDElementTypeInput_Button) {
-            if (elem_type == kIOHIDElementTypeOutput || elem_type == kIOHIDElementTypeFeature) {
-                int compiled_usage = usage_page << 16 | usage;
-                auto the_map = (elem_type == kIOHIDElementTypeOutput ? ctx->gamepad->_valid_output_elements : ctx->gamepad->_valid_feature_elements);
-                // ^ note: the parenthesis is necessary to make the_map an rvalue reference.
-                the_map.insert({compiled_usage, element});
-            }
-            element = NULL;
-        }
-        
-        if (element != NULL) {
-            CFTypeRef key = CFSTR(kIOHIDElementCookieKey);
-            IOHIDElementCookie cookie = IOHIDElementGetCookie(element);
-            CFTypeRef value = CFNumberCreate(kCFAllocatorDefault, kCFNumberSInt32Type, &cookie);
-            CFDictionaryRef dictionary = CFDictionaryCreate(kCFAllocatorDefault, &key, &value, 1, &kCFTypeDictionaryKeyCallBacks, &kCFTypeDictionaryValueCallBacks);
-            CFRelease(value);
-            
-            CFArrayAppendValue(ctx->restricted_elements, dictionary);
-            CFRelease(dictionary);
-        }
+    void set(IOHIDElementRef element, IOHIDValueRef content) {
+        IOHIDTransactionAddElement(value, element);
+        IOHIDTransactionSetValue(value, element, content, 0);
     }
     
-    void Gamepad_Darwin::handle_input_value(void* context, IOReturn, void*, IOHIDValueRef value) {
-        Gamepad_Darwin* this_ = static_cast<Gamepad_Darwin*>(context);
+    void add(IOHIDElementRef element) {
+        IOHIDTransactionAddElement(value, element);
+    }
+    
+    IOHIDValueRef get(IOHIDElementRef element) const {
+        return IOHIDTransactionGetValue(value, element, 0);
+    }
+    
+    IOReturn commit() {
+        return IOHIDTransactionCommit(value);
+    }
+};
+
+struct IOHIDValue : CFType<IOHIDValueRef> {
+    IOHIDValue(IOHIDElementRef element, uint64_t timestamp, CFIndex the_value) : CFType(
+        IOHIDValueCreateWithIntegerValue(kCFAllocatorDefault, element, timestamp, the_value)
+    ) {}
+};
+
+
+namespace GP {
+    struct Gamepad::Impl {
+        uint64_t _last_report_time;
+        std::unordered_map<int, IOHIDElementRef> _valid_output_elements, _valid_feature_elements;
+        IOHIDDeviceRef _device;
+
+    private:
+        static void handle_input_value(void* context, IOReturn, void*, IOHIDValueRef value);
+        static void handle_report(void* context, IOReturn, void*, IOHIDReportType, uint32_t, uint8_t*, CFIndex);
+
+    public:
+        Impl(Gamepad* gamepad, IOHIDDeviceRef device);
+    };
+    
+    void Gamepad::create_impl(void* implementation_data) {
+        auto device = static_cast<IOHIDDeviceRef>(implementation_data);
+        _impl = new Impl(this, device);
+    }
+    
+    void Gamepad::destroy_impl() {
+        delete _impl;
+    }
+    
+    
+    Gamepad::Impl::Impl(Gamepad* gamepad, IOHIDDeviceRef device) 
+        : _last_report_time{mach_absolute_time()}, _device{device}
+    {
+        CFArray elements ( IOHIDDeviceCopyMatchingElements(device, NULL, kIOHIDOptionsTypeNone) );
+        CFMutableArray restricted_elements;
+        
+        struct Ctx {
+            Gamepad* gamepad;
+            Impl* impl;
+            CFMutableArray& restricted_elements;
+        } ctx = {gamepad, this, restricted_elements};
+        
+        elements.for_each(&ctx, [](const void* value, void* context) {
+            auto ctx = static_cast<Ctx*>(context);
+            IOHIDElementRef element = static_cast<IOHIDElementRef>(const_cast<void*>(value));
+            
+            int usage_page = IOHIDElementGetUsagePage(element);
+            int usage = IOHIDElementGetUsage(element);
+            Axis axis = axis_from_usage(usage_page, usage);
+            auto elem_type = IOHIDElementGetType(element);
+            
+            if (axis != Axis::invalid) {
+                ctx->gamepad->set_bounds_for_axis(axis, IOHIDElementGetLogicalMin(element), IOHIDElementGetLogicalMax(element));
+            } else if (elem_type != kIOHIDElementTypeInput_Button) {
+                if (elem_type == kIOHIDElementTypeOutput || elem_type == kIOHIDElementTypeFeature) {
+                    int compiled_usage = usage_page << 16 | usage;
+                    auto the_map = (elem_type == kIOHIDElementTypeOutput
+                                        ? ctx->impl->_valid_output_elements
+                                        : ctx->impl->_valid_feature_elements);
+                    // ^ note: the parenthesis is necessary to make the_map an rvalue reference.
+                    the_map.insert({compiled_usage, element});
+                }
+                element = NULL;
+            }
+            
+            if (element != NULL) {
+                CFNumber cookie (IOHIDElementGetCookie(element));
+                CFDictionary dictionary(CFSTR(kIOHIDElementCookieKey), cookie.value);
+                ctx->restricted_elements.append(dictionary.value);
+            }
+        });
+        
+        IOHIDDeviceSetInputValueMatchingMultiple(device, restricted_elements.value);
+        
+        IOHIDDeviceRegisterInputValueCallback(device, Gamepad::Impl::handle_input_value, gamepad);
+        IOHIDDeviceRegisterInputReportCallback(device, NULL, 0, Gamepad::Impl::handle_report, gamepad);
+        
+    }
+    
+    void Gamepad::Impl::handle_input_value(void* context, IOReturn, void*, IOHIDValueRef value) {
+        Gamepad* this_ = static_cast<Gamepad*>(context);
         IOHIDElementRef element = IOHIDValueGetElement(value);
         long new_value = IOHIDValueGetIntegerValue(value);
         
@@ -93,72 +160,51 @@ namespace GP {
             this_->handle_button_change(button, new_value);
         }
     }
-    
-    void Gamepad_Darwin::handle_report(void* context, IOReturn, void*, IOHIDReportType, uint32_t, uint8_t*, CFIndex) {
+        
+    void Gamepad::Impl::handle_report(void* context, IOReturn, void*, IOHIDReportType, uint32_t, uint8_t*, CFIndex) {
         // Ref: http://developer.apple.com/library/mac/#qa/qa2004/qa1398.html
         static mach_timebase_info_data_t timebase_info;
         if (!timebase_info.denom)
             mach_timebase_info(&timebase_info);
 
-        Gamepad_Darwin* this_ = static_cast<Gamepad_Darwin*>(context);
+        Gamepad* this_ = static_cast<Gamepad*>(context);
         
         auto time_now = mach_absolute_time();
-        auto timestamp_elapsed = time_now - this_->_last_report_time;
+        auto timestamp_elapsed = time_now - this_->_impl->_last_report_time;
         unsigned nanoseconds_elapsed = timestamp_elapsed * timebase_info.numer / timebase_info.denom;
-        this_->_last_report_time = time_now;
+        this_->_impl->_last_report_time = time_now;
         
         this_->handle_axes_change(nanoseconds_elapsed);
     }
     
-    void send(int usage_page, int usage, const unsigned char* content, size_t content_size);
-    void retrieve(int usage_page, int usage, unsigned char* buffer, size_t buffer_size);
-
-        
-    Gamepad_Darwin::Gamepad_Darwin(IOHIDDeviceRef device) : Gamepad(), _device{device}, _last_report_time{mach_absolute_time()} {
-        CFArrayRef elements = IOHIDDeviceCopyMatchingElements(device, NULL, kIOHIDOptionsTypeNone);
-        CFMutableArrayRef restricted_elements = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
-        
-        Ctx ctx = {this, restricted_elements};
-        CFArrayApplyFunction(elements, CFRangeMake(0, CFArrayGetCount(elements)), collect_axis_bounds, &ctx);
-        CFRelease(elements);
-        
-        IOHIDDeviceSetInputValueMatchingMultiple(device, restricted_elements);
-        CFRelease(restricted_elements);
-        
-        IOHIDDeviceRegisterInputValueCallback(device, Gamepad_Darwin::handle_input_value, this);
-        IOHIDDeviceRegisterInputReportCallback(device, NULL, 0, Gamepad_Darwin::handle_report, this);
-    }
     
     //## WARNING: THE FOLLOWING TWO METHODS ARE NOT TESTED! 
     //            Testing will be delayed to when I've met a device that the
     //             output format is reliably decoded. Do not use them in 
     //             productive environment.
-    bool Gamepad_Darwin::commit_transaction(const Transaction& transaction) {
-        auto trans = IOHIDTransactionCreate(kCFAllocatorDefault, _device, kIOHIDTransactionDirectionTypeOutput, 0);
-        
+    bool Gamepad::commit_transaction(const Transaction& transaction) {
+        IOHIDTransaction trans (_impl->_device, kIOHIDTransactionDirectionTypeOutput);
         auto abs_time = mach_absolute_time();        
         
         struct TransactionAppender {
             uint64_t abs_time;
             const std::unordered_map<int, IOHIDElementRef>& valid_elements;
             std::unordered_map<int, IOHIDElementRef>::const_iterator invalid_element_it;
-            IOHIDTransactionRef trans;
+            IOHIDTransaction& trans;
             
             void operator() (const Transaction::Value& elem) {
                 auto cit = valid_elements.find(elem.usage_page << 16 | elem.usage);
                 if (cit != invalid_element_it) {
-                    auto value = IOHIDValueCreateWithIntegerValue(kCFAllocatorDefault, cit->second, abs_time, elem.value);
-                    IOHIDTransactionAddElement(trans, cit->second);
-                    IOHIDTransactionSetValue(trans, cit->second, value, 0);
-                    CFRelease(value);
+                    IOHIDValue value (cit->second, abs_time, elem.value);
+                    trans.set(cit->second, value.value);
                 }
             }
             
-            TransactionAppender(IOHIDTransactionRef transaction_, const std::unordered_map<int, IOHIDElementRef>& elements, uint64_t abs_time_)
-                : abs_time{abs_time_}, valid_elements(elements), invalid_element_it{elements.cend()}, trans{transaction_} {}
+            TransactionAppender(IOHIDTransaction& transaction_, const std::unordered_map<int, IOHIDElementRef>& elements, uint64_t abs_time_)
+                : abs_time{abs_time_}, valid_elements(elements), invalid_element_it{elements.cend()}, trans(transaction_) {}
         
-        } output_appender(trans, _valid_output_elements, abs_time), 
-            feature_appender(trans, _valid_feature_elements, abs_time);
+        } output_appender(trans, _impl->_valid_output_elements, abs_time), 
+            feature_appender(trans, _impl->_valid_feature_elements, abs_time);
 
         
         auto output_values = transaction.output_values();
@@ -173,33 +219,35 @@ namespace GP {
         auto feature_buttons = transaction.feature_buttons();
         std::for_each(feature_buttons.cbegin(), feature_buttons.cend(), feature_appender);
                 
-        IOReturn retval = IOHIDTransactionCommit(trans);
-        CFRelease(trans);
-        
+        IOReturn retval = trans.commit();
         return retval == kIOReturnSuccess;
     }
     
-    bool Gamepad_Darwin::get_features(Transaction& transaction) {
-        IOHIDTransactionRef trans = IOHIDTransactionCreate(kCFAllocatorDefault, _device, kIOHIDTransactionDirectionTypeInput, 0);
-        std::for_each(_valid_feature_elements.cbegin(), _valid_feature_elements.cend(), [trans](const std::pair<int, IOHIDElementRef>& elem) {
-            IOHIDTransactionAddElement(trans, elem.second);
-        });
+    bool Gamepad::get_features(Transaction& transaction) {
+        IOHIDTransaction trans (_impl->_device, kIOHIDTransactionDirectionTypeInput);
         
-        IOReturn retval = IOHIDTransactionCommit(trans);
+        std::for_each(_impl->_valid_feature_elements.cbegin(), _impl->_valid_feature_elements.cend(),
+            [&trans](const std::pair<int, IOHIDElementRef>& elem) {
+                trans.add(elem.second);
+            }
+        );
+        
+        IOReturn retval = trans.commit();
         bool succeed = (retval == kIOReturnSuccess);
-        if (succeed) {
-            std::for_each(_valid_feature_elements.cbegin(), _valid_feature_elements.cend(), [trans, &transaction](const std::pair<int, IOHIDElementRef>& elem) {
-                IOHIDValueRef value = IOHIDTransactionGetValue(trans, elem.second, 0);
-                if (value) {
-                    long intval = IOHIDValueGetIntegerValue(value);
-                    int usage_page = (elem.first >> 16) & 0xffff;
-                    int usage = elem.first & 0xffff;
-                    transaction.set_feature_value(usage_page, usage, intval);
-                }
-            });
-        }
         
-        CFRelease(trans);
+        if (succeed) {
+            std::for_each(_impl->_valid_feature_elements.cbegin(), _impl->_valid_feature_elements.cend(),
+                [&trans, &transaction](const std::pair<int, IOHIDElementRef>& elem) {
+                    IOHIDValueRef value = trans.get(elem.second);
+                    if (value) {
+                        long intval = IOHIDValueGetIntegerValue(value);
+                        int usage_page = (elem.first >> 16) & 0xffff;
+                        int usage = elem.first & 0xffff;
+                        transaction.set_feature_value(usage_page, usage, intval);
+                    }
+                }
+            );
+        }
         
         return succeed;
     }
