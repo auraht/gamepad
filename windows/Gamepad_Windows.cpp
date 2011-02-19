@@ -30,7 +30,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#include "Gamepad_Windows.hpp"
+#include "GamepadExtra.hpp"
 #include <vector>
 #include <algorithm>
 #include <iterator>
@@ -38,46 +38,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Dbt.h>
 #include "Shared.hpp"
 #include "../Transaction.hpp"
-
-// This stuff is to avoid the need to install the WDK just to get hid.lib.
-static const struct HIDDLL {
-    HMODULE _module;
-
-#define HID_DECLARE(fname) decltype(&::fname) fname
-#define HID_DEFINE(fname) fname = reinterpret_cast<decltype(fname)>(GetProcAddress(_module, #fname))
-#define HID_PERFORM(MACRO) \
-    MACRO(HidP_GetCaps); \
-    MACRO(HidP_GetSpecificValueCaps); \
-    MACRO(HidP_GetUsageValue); \
-    MACRO(HidP_MaxUsageListLength); \
-    MACRO(HidP_GetUsagesEx); \
-    MACRO(HidD_GetPreparsedData); \
-    MACRO(HidD_FreePreparsedData); \
-    MACRO(HidP_SetUsageValue); \
-    MACRO(HidP_SetUsages); \
-    MACRO(HidP_UnsetUsages); \
-    MACRO(HidD_SetFeature); \
-    MACRO(HidD_GetFeature)
-
-    HID_PERFORM(HID_DECLARE);
-
-    HIDDLL() {
-        memset(this, 0, sizeof(*this));
-        _module = LoadLibrary("hid.dll");
-        if (_module) {
-            HID_PERFORM(HID_DEFINE);
-        }
-    }
-
-#undef HID_PERFORM
-#undef HID_DECLARE
-#undef HID_DEFINE
-
-    ~HIDDLL() {
-        if (_module)
-            FreeLibrary(_module);
-    }
-} hid;
+#include "../Gamepad.hpp"
+#include <process.h>
+#include <unordered_set>
 
 namespace GP {
     static const USAGE_AND_PAGE _VALID_USAGES[] = {
@@ -86,41 +49,118 @@ namespace GP {
         {HID_USAGE_GENERIC_MULTI_AXIS_CONTROLLER, HID_USAGE_PAGE_GENERIC}
     };
 
-    void Gamepad_Windows::destroy() {
-        if (_reader_thread_handle) {
-            DWORD errcode = ERROR_OBJECT_NOT_FOUND;
-            if (_input_received_event)
-                SetEvent(_input_received_event);
-            if (_thread_exit_event)
-                errcode = SignalObjectAndWait(_thread_exit_event, _reader_thread_handle, 1000, false);
-            if (errcode)
-                TerminateThread(_reader_thread_handle, errcode);
-            CloseHandle(_reader_thread_handle);
-            _reader_thread_handle = NULL;
-        }
-        if (_input_received_event) {
-            CloseHandle(_input_received_event);
-            _input_received_event = NULL;
-        }
-        if (_thread_exit_event) {
-            CloseHandle(_thread_exit_event);
-            _thread_exit_event = NULL;
-        }
-        if (_preparsed) {
-            hid.HidD_FreePreparsedData(_preparsed);
-            _preparsed = NULL;
-        }
-        if (_notif_handle != NULL) {
-            UnregisterDeviceNotification(_notif_handle);
-            _notif_handle = NULL;
-        }
-        if (_handle != INVALID_HANDLE_VALUE) {
-            CloseHandle(_handle);
-            _handle = INVALID_HANDLE_VALUE;
+    struct Gamepad::Impl {
+        struct _AxisUsage {
+            Axis axis;
+            USAGE usage_page;
+            USAGE usage;
+        };
+
+        HWND _hwnd;
+        HID::Device _device;
+        HID::PreparsedData _preparsed;
+        Gamepad* _gamepad;
+
+        std::vector<_AxisUsage> _valid_axes;
+        std::vector<USAGE_AND_PAGE> _valid_feature_usages;
+        ULONG _buttons_count, _feature_buttons_count;
+        USHORT _input_report_size, _output_report_size, _feature_report_size;
+        
+        std::vector<char> _input_report_buffer;
+        std::vector<USAGE_AND_PAGE> _active_usages_buffer;
+        std::vector<USAGE_AND_PAGE> _last_active_usages;
+        ULONG _last_active_usages_count;
+
+        
+        Event _thread_exit_event, _input_received_event;
+        Thread _reader_thread;
+        HID::DeviceNotification _notif;
+
+    public:
+        HANDLE device_handle() const { return _device.handle(); }
+
+        Impl(HWND hwnd, LPCTSTR path, Gamepad* gamepad);
+        ~Impl();
+
+        bool analyze_caps(const HIDP_CAPS& caps, Gamepad* gamepad);
+
+        static unsigned __stdcall reader_thread_entry(void* args);
+    };
+
+    Gamepad::Impl::~Impl() {
+        _input_received_event.set();
+        _thread_exit_event.set();
+    }
+
+    Gamepad::Impl::Impl(HWND hwnd, LPCTSTR path, Gamepad* gamepad) : _hwnd(hwnd), _gamepad(gamepad) {
+        if (path != NULL) {
+            // branch for actual gamepad...
+
+            // 1. open a file handle to the HID class device from dev_path.
+            _device = HID::Device(path);
+            if (_device.handle() == INVALID_HANDLE_VALUE)
+                return;
+
+            // 2. retrieve the preparsed data
+            _preparsed = HID::PreparsedData(_device);
+
+            // 3. get capabilities from the preparsed data
+            HIDP_CAPS caps = _preparsed.caps();
+
+            // 4. make sure the HID class device *is* a gamepad.
+            if (!this->analyze_caps(caps, gamepad)) {
+                _device.close();
+                return;
+            }
+
+            // 6. Start reader thread.
+            //## TODO: Is using thread a good strategy?
+            //         (Let's hope there won't be dozens of input devices connected to the same system.)
+            _thread_exit_event = Event(false, false);
+            _input_received_event = Event(true, true);
+            _reader_thread = Thread(&Gamepad::Impl::reader_thread_entry, this);
+
+            // 7. register broadcast (WM_DEVICECHANGED) to allow proper handling of unplugging device.
+            _notif = HID::DeviceNotification(hwnd, _device);
+
+        } else {
+            // branch for simulated gamepad...
         }
     }
 
-    bool Gamepad_Windows::analyze_caps(const HIDP_CAPS& caps) {
+    unsigned __stdcall Gamepad::Impl::reader_thread_entry(void* args) {
+        auto impl = static_cast<Gamepad::Impl*>(args);
+        DWORD errcode = 0;
+
+        auto input_buf = &impl->_input_report_buffer[0];
+        auto input_size = impl->_input_report_size;
+
+        LARGE_INTEGER last_counter = {0}, frequency = {0};
+        checked(QueryPerformanceFrequency(&frequency));
+        checked(QueryPerformanceCounter(&last_counter));
+        //## TODO: Fallback to GetTickCount if QueryPerformanceCounter is not supported.
+
+        while (!impl->_thread_exit_event.get()) {
+            if (!impl->_device.read(input_buf, input_size))
+                break;
+
+            LARGE_INTEGER counter;
+            checked(QueryPerformanceCounter(&counter));
+            auto delta_c = counter.QuadPart - last_counter.QuadPart;
+            last_counter = counter;
+            auto nanosec = delta_c * 1000000000 / frequency.QuadPart;
+            unsigned nanoseconds_elapsed = static_cast<unsigned>(nanosec);
+
+            impl->_input_received_event.reset();
+            //## TODO: Probably there's a more efficient method than PostMessage()?
+            PostMessage(impl->_hwnd, report_arrived_message, nanoseconds_elapsed, reinterpret_cast<LPARAM>(impl->_gamepad));
+            impl->_input_received_event.wait();
+        }
+        _endthreadex(0);
+        return 0;
+    }
+
+    bool Gamepad::Impl::analyze_caps(const HIDP_CAPS& caps, Gamepad* gamepad) {
         // 4. make sure the HID class device *is* a gamepad.
         USAGE_AND_PAGE up = {caps.Usage, caps.UsagePage};
         auto cend = _VALID_USAGES + sizeof(_VALID_USAGES)/sizeof(*_VALID_USAGES);
@@ -131,32 +171,34 @@ namespace GP {
         // 5. retrieve rest of the capabilities...
 
         // 5.1. input caps
-        std::vector<HIDP_VALUE_CAPS> value_caps (caps.NumberInputValueCaps);
-        ULONG actual_value_caps_count = caps.NumberInputValueCaps;
-        hid.HidP_GetValueCaps(HidP_Input, &value_caps[0], &actual_value_caps_count, _preparsed);
+        std::vector<HIDP_VALUE_CAPS> value_caps;
+        _preparsed.get_value_caps(HidP_Input, caps.NumberInputValueCaps, value_caps);
 
-        std::for_each(value_caps.cbegin(), value_caps.cend(), [this](const HIDP_VALUE_CAPS& k) {
+        std::for_each(value_caps.cbegin(), value_caps.cend(), [this, gamepad](const HIDP_VALUE_CAPS& k) {
             auto max_usage = k.IsRange ? k.Range.UsageMax : k.NotRange.Usage;
             for (auto usage = k.Range.UsageMin; usage <= max_usage; ++ usage) {
                 Axis axis = axis_from_usage(k.UsagePage, usage);
                 if (valid(axis)) {
-                    this->set_bounds_for_axis(axis, k.LogicalMin, k.LogicalMax);
+                    gamepad->set_bounds_for_axis(axis, k.LogicalMin, k.LogicalMax);
                     _AxisUsage axis_usage = {axis, k.UsagePage, usage};
                     _valid_axes.push_back(axis_usage);
                 }
             }
         });
 
-        _buttons_count = hid.HidP_MaxUsageListLength(HidP_Input, 0, _preparsed);
+        _buttons_count = _preparsed.max_usage_list_length(HidP_Input);
         _input_report_size = caps.InputReportByteLength;
         _output_report_size = caps.OutputReportByteLength;
         _feature_report_size = caps.FeatureReportByteLength;
 
+        _input_report_buffer.resize(caps.InputReportByteLength);
+        _active_usages_buffer.resize(_buttons_count);
+        _last_active_usages.resize(_buttons_count);
+        _last_active_usages_count = 0;
+
         // 5.2. feature caps
-        actual_value_caps_count = caps.NumberFeatureValueCaps;
-        if (actual_value_caps_count) {
-            value_caps.resize(actual_value_caps_count);
-            hid.HidP_GetValueCaps(HidP_Feature, &value_caps[0], &actual_value_caps_count, _preparsed);
+        if (caps.NumberFeatureValueCaps) {
+            _preparsed.get_value_caps(HidP_Feature, caps.NumberFeatureValueCaps, value_caps);
 
             std::for_each(value_caps.cbegin(), value_caps.cend(), [this](const HIDP_VALUE_CAPS& k) {
                 auto max_usage = k.IsRange ? k.Range.UsageMax : k.NotRange.Usage;
@@ -167,243 +209,113 @@ namespace GP {
             });
         }
 
-        _feature_buttons_count = hid.HidP_MaxUsageListLength(HidP_Feature, 0, _preparsed);
+        _feature_buttons_count = _preparsed.max_usage_list_length(HidP_Feature);
         return true;
     }
 
-    Gamepad_Windows::Gamepad_Windows(HWND hwnd, const TCHAR* dev_path)
-        : Gamepad(), _handle(INVALID_HANDLE_VALUE), _preparsed(NULL), _notif_handle(NULL), _thread_exit_event(NULL), _reader_thread_handle(NULL),
-          _input_received_event(NULL), _hwnd(hwnd)
-    {
-        // 1. open a file handle to the HID class device from dev_path.
-        _handle = CreateFile(dev_path, GENERIC_READ|GENERIC_WRITE, FILE_SHARE_READ|FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
-        if (_handle == INVALID_HANDLE_VALUE)
-            return;
-        
-        // 2. retrieve the preparsed data
-        if (!hid.HidD_GetPreparsedData(_handle, &_preparsed) || !_preparsed) {
-            this->destroy();
-            return;
-        }
+    void Gamepad::create_impl(void* implementation_data) {
+        auto data = static_cast<GamepadData*>(implementation_data);
+        _impl = new Impl(data->hwnd, data->path, this);
+        data->device_handle = _impl->device_handle();
+    }
 
-        // 3. get capabilities from the preparsed data
-        HIDP_CAPS caps;
-        if (hid.HidP_GetCaps(_preparsed, &caps) != HIDP_STATUS_SUCCESS) {
-            this->destroy();
-            return;
-        }
-
-        if (!this->analyze_caps(caps)) {
-            this->destroy();
-            return;
-        }
-        
-        // 6. Start reader thread.
-        _thread_exit_event = CreateEvent(NULL, false, false, NULL);
-        if (!_thread_exit_event) {
-            this->destroy();
-            return;
-        }
-        _input_received_event = CreateEvent(NULL, true, true, NULL);
-        if (!_input_received_event) {
-            this->destroy();
-            return;
-        }
-        _reader_thread_handle = CreateThread(NULL, 0, Gamepad_Windows::reader_thread_entry, this, 0, NULL);
-        if (!_reader_thread_handle) {
-            this->destroy();
-            return;
-        }
-
-        // 7. register broadcast (WM_DEVICECHANGED) to allow proper handling of unplugging device.
-        if (!this->register_broadcast(hwnd)) {
-            this->destroy();
-            return;
-        }
+    void Gamepad::destroy_impl() {
+        delete _impl;
     }
 
 
-    DWORD Gamepad_Windows::reader_thread() {
-        _input_report_buffer.resize(_input_report_size);
-        DWORD errcode = 0;
+    void Gamepad::perform_impl_action(void* data) {
+        unsigned nanoseconds_elapsed = *static_cast<WPARAM*>(data);
+        auto impl = this->_impl;
 
-        LARGE_INTEGER last_counter = {0}, frequency = {0};
-        QueryPerformanceFrequency(&frequency);
-        QueryPerformanceCounter(&last_counter);
-        //## TODO: Fallback to GetTickCount if QueryPerformanceCounter is not supported.
+        {
+            auto active_begin = &impl->_active_usages_buffer[0];
+            auto last_active_begin = &impl->_last_active_usages[0];
+            ULONG active_usages_count = impl->_buttons_count;
 
-        while (true) {
-            errcode = WaitForSingleObject(_thread_exit_event, 0);
-            if (errcode != WAIT_TIMEOUT)
-                break;
+            {
+                struct ContinueReadOnExit {
+                    Event& read_event;
+                    ContinueReadOnExit(Event& ev) : read_event(ev) {}
+                    ~ContinueReadOnExit() { read_event.set(); }
+                } continue_read_on_exit (impl->_input_received_event);
 
-            DWORD bytes_read;
-            auto succeed = ReadFile(_handle, &_input_report_buffer[0], _input_report_size, &bytes_read, NULL);
-            if (bytes_read != _input_report_size)
-                succeed = false;
-            if (succeed) {
-                LARGE_INTEGER counter;
-                QueryPerformanceCounter(&counter);
-                auto delta_c = counter.QuadPart - last_counter.QuadPart;
-                last_counter = counter;
-                auto nanosec = delta_c * 1000000000 / frequency.QuadPart;
-                unsigned nanoseconds_elapsed = static_cast<unsigned>(nanosec);
+                PCHAR report = &impl->_input_report_buffer[0];
 
-                //this->handle_input_report(&_input_report_buffer[0], nanoseconds_elapsed);
-                ResetEvent(_input_received_event);
-                PostMessage(_hwnd, WM_USER + 0x493f, nanoseconds_elapsed, reinterpret_cast<LPARAM>(this));
-                WaitForSingleObject(_input_received_event, INFINITE);
+                std::for_each(impl->_valid_axes.cbegin(), impl->_valid_axes.cend(), [report, impl, this](Impl::_AxisUsage axis_usage) {
+                    auto result = impl->_preparsed.usage_value(HidP_Input, report, impl->_input_report_size, axis_usage.usage_page, axis_usage.usage);
+                    this->set_axis_value(axis_usage.axis, result);
+                });
 
+                impl->_preparsed.get_active_usages(HidP_Input, report, impl->_input_report_size, active_begin, &active_usages_count);
             }
-            else {
-                errcode = GetLastError();
-                break;
-            }
+
+            this->handle_axes_change(nanoseconds_elapsed);
+
+            std::sort(active_begin, active_begin + active_usages_count);
+            for_each_diff(active_begin, active_begin + active_usages_count, last_active_begin, last_active_begin + impl->_last_active_usages_count,
+                [this](USAGE_AND_PAGE active_usage) {
+                    this->handle_button_change(button_from_usage(active_usage.UsagePage, active_usage.Usage), true);
+                },
+                [this](USAGE_AND_PAGE inactive_usage) {
+                    this->handle_button_change(button_from_usage(inactive_usage.UsagePage, inactive_usage.Usage), false);
+                }
+            );
+            
+            impl->_last_active_usages_count = active_usages_count;
+            impl->_last_active_usages.swap(impl->_active_usages_buffer);
         }
-
-        if (errcode != ERROR_SUCCESS && errcode != ERROR_DEVICE_NOT_CONNECTED) {
-            printf("Reader thread exited with error code %d.\n", errcode);
-            //## TODO: Maybe we should throw an exception?
-        }
-        return errcode;
     }
 
-    void Gamepad_Windows::handle_input_report(unsigned nanoseconds_elapsed) {
-        PCHAR report = &_input_report_buffer[0];
-
-        std::for_each(_valid_axes.cbegin(), _valid_axes.cend(), [this, report](_AxisUsage axis_usage) {
-            ULONG result = 0;
-            if (hid.HidP_GetUsageValue(HidP_Input, axis_usage.usage_page, 0, axis_usage.usage, &result, _preparsed, report, _input_report_size) == HIDP_STATUS_SUCCESS) {
-                this->set_axis_value(axis_usage.axis, result);
-            }
-        });
-
-        
-        std::vector<USAGE_AND_PAGE> active_buttons_vector (_buttons_count);
-        ULONG active_buttons_count = _buttons_count;
-
-        hid.HidP_GetUsagesEx(HidP_Input, 0, &active_buttons_vector[0], &active_buttons_count, _preparsed, report, _input_report_size);
-
-        std::unordered_set<Button> active_buttons;
-        std::transform(active_buttons_vector.cbegin(), active_buttons_vector.cbegin() + active_buttons_count,
-            std::inserter(active_buttons, active_buttons.end()),
-            [](USAGE_AND_PAGE usage) { return button_from_usage(usage.UsagePage, usage.Usage); }
-        );
-
-        SetEvent(_input_received_event);
-
-        this->handle_axes_change(nanoseconds_elapsed);
-
-        auto prev_end = _previous_active_buttons.cend();
-        auto active_end = active_buttons.cend();
-        std::for_each(active_buttons.cbegin(), active_buttons.cend(), [this, prev_end](Button button) {
-            if (_previous_active_buttons.find(button) == prev_end) {
-                this->handle_button_change(button, true);
-            }
-        });
-        std::for_each(_previous_active_buttons.cbegin(), _previous_active_buttons.cend(), [this, &active_buttons, active_end](Button button) {
-            if (active_buttons.find(button) == active_end) {
-                this->handle_button_change(button, false);
-            }
-        });
-
-        _previous_active_buttons.swap(active_buttons);
-    }
-
-    bool Gamepad_Windows::register_broadcast(HWND hwnd) {
-        DEV_BROADCAST_HANDLE filter;
-        filter.dbch_size = sizeof(filter);
-        filter.dbch_devicetype = DBT_DEVTYP_HANDLE;
-        filter.dbch_handle = _handle;
-
-        _notif_handle = RegisterDeviceNotification(hwnd, &filter, DEVICE_NOTIFY_WINDOW_HANDLE);
-        return _notif_handle != NULL;
-    }
-
-    Gamepad_Windows* Gamepad_Windows::insert(HWND hwnd, const TCHAR* dev_path) {
-        auto gamepad = new Gamepad_Windows(hwnd, dev_path);
-        if (gamepad->_handle != INVALID_HANDLE_VALUE) {
-            return gamepad;
-        }
-        delete gamepad;
-        return NULL;
-    }
-
-
-    /*
-    void Gamepad_Windows::handle_raw_input(const RAWHID& input) {
-        auto report = reinterpret_cast<PCHAR>(const_cast<BYTE*>(input.bRawData));
-        auto report_size = input.dwSizeHid;
-        if (input.dwCount != 1) {
-            //## TODO: Handle error when the report count is not 1.
-        }
-
-       
-    }
-    */
-
-    std::unique_ptr<char[]> Gamepad_Windows::fill_output_report(HIDP_REPORT_TYPE report_type, size_t report_size, const std::vector<Transaction::Value>& values, const std::vector<Transaction::Value>& buttons) const {
+    bool fill_output_report(const HID::PreparsedData& preparsed, HIDP_REPORT_TYPE report_type, char* report, size_t report_size, const std::vector<Transaction::Value>& values, const std::vector<Transaction::Value>& buttons) {
         if (!report_size)
-            return nullptr;
-
+            return false;
         if (values.empty() && buttons.empty())
-            return nullptr;
-
-        std::unique_ptr<char[]> report_buffer(new char[report_size]);
-        PCHAR report = report_buffer.get();
-        report[0] = 0;
-
-        std::for_each(values.begin(), values.end(), [this, report, report_type, report_size](const Transaction::Value& elem) {
-            hid.HidP_SetUsageValue(report_type, elem.usage_page, 0, elem.usage, elem.value, _preparsed, report, report_size);
-        });
-
-        std::for_each(buttons.begin(), buttons.end(), [this, report, report_type, report_size](const Transaction::Value& elem) {
-            ULONG one = 1;
-            USAGE usage = elem.usage;
-            auto function = elem.value ? hid.HidP_SetUsages : hid.HidP_UnsetUsages;
-            function(report_type, elem.usage_page, 0, &usage, &one, _preparsed, report, report_size);
-        });
-
-        return std::move(report_buffer);
-    }
-
-    bool Gamepad_Windows::commit_transaction(const Transaction& transaction) {
-        bool succeed = true;
-
-        auto output_buffer = this->fill_output_report(HidP_Output, _output_report_size, transaction.output_values(), transaction.output_buttons());
-        if (output_buffer != nullptr) {
-            DWORD actual_bytes_written;
-            if (!WriteFile(_handle, output_buffer.get(), _output_report_size, &actual_bytes_written, NULL))
-                succeed = false;
-        }
-
-        auto feature_buffer = this->fill_output_report(HidP_Feature, _feature_report_size, transaction.feature_values(), transaction.feature_buttons());
-        if (feature_buffer != nullptr)
-            if (!hid.HidD_SetFeature(_handle, feature_buffer.get(), _feature_report_size))
-                succeed = false;
-
-        return succeed;
-    }
-
-    bool Gamepad_Windows::get_features(Transaction& transaction) {
-        std::unique_ptr<char[]> feature_buffer(new char[_feature_report_size]);
-        auto report = feature_buffer.get();
-        report[0] = 0;
-
-        if (!hid.HidD_GetFeature(_handle, report, _feature_report_size))
             return false;
 
-        std::for_each(_valid_feature_usages.cbegin(), _valid_feature_usages.cend(), [this, report, &transaction](const USAGE_AND_PAGE& up) {
-            ULONG value;
-            if (hid.HidP_GetUsageValue(HidP_Feature, up.UsagePage, 0, up.Usage, &value, _preparsed, report, _feature_report_size))
-                transaction.set_feature_value(up.UsagePage, up.Usage, value);
+        std::for_each(values.cbegin(), values.cend(), [report_type, report, report_size, &preparsed](const Transaction::Value& elem) {
+            preparsed.set_usage_value(report_type, report, report_size, elem.usage_page, elem.usage, elem.value);
+        });
+        std::for_each(buttons.cbegin(), buttons.cend(), [report_type, report, report_size, &preparsed](const Transaction::Value& elem) {
+            preparsed.set_usage_activated(report_type, report, report_size, elem.usage_page, elem.usage, elem.value);
+        });
+        return true;
+    }
+
+
+    bool Gamepad::commit_transaction(const Transaction& transaction) {
+        std::vector<char> buf (_impl->_output_report_size);
+
+        if (fill_output_report(_impl->_preparsed, HidP_Output, &buf[0], _impl->_output_report_size, transaction.output_values(), transaction.output_buttons())) 
+            _impl->_device.write(&buf[0], _impl->_output_report_size);
+
+        if (_impl->_feature_report_size > _impl->_output_report_size)
+            buf.resize(_impl->_feature_report_size);
+
+        if (fill_output_report(_impl->_preparsed, HidP_Feature, &buf[0], _impl->_feature_report_size, transaction.feature_values(), transaction.feature_buttons())) 
+            _impl->_device.set_feature(&buf[0], _impl->_feature_report_size);
+        
+        return true;
+    }
+
+    bool Gamepad::get_features(Transaction& transaction) {
+        std::vector<char> buf (_impl->_feature_report_size);
+        if (!_impl->_device.get_feature(&buf[0], _impl->_feature_report_size))
+            return false;
+
+        PCHAR report = &buf[0];
+
+
+        std::for_each(_impl->_valid_feature_usages.cbegin(), _impl->_valid_feature_usages.cend(), [this, report, &transaction](USAGE_AND_PAGE up) {
+            auto value = _impl->_preparsed.usage_value(HidP_Feature, report, _impl->_feature_report_size, up.UsagePage, up.Usage);
+            transaction.set_feature_value(up.UsagePage, up.Usage, value);
         });
 
-        ULONG active_buttons_count = _feature_buttons_count;
+        ULONG active_buttons_count = _impl->_feature_buttons_count;
         std::vector<USAGE_AND_PAGE> active_buttons_vector (active_buttons_count);
-        hid.HidP_GetUsagesEx(HidP_Feature, 0, &active_buttons_vector[0], &active_buttons_count, _preparsed, report, _feature_report_size);
-
-        std::for_each(active_buttons_vector.cbegin(), active_buttons_vector.cbegin() + active_buttons_count, [&transaction](const USAGE_AND_PAGE& up) {
+        auto active_buttons_begin = &active_buttons_vector[0];
+        _impl->_preparsed.get_active_usages(HidP_Feature, report, _impl->_feature_report_size, active_buttons_begin, &active_buttons_count);
+        std::for_each(active_buttons_begin, active_buttons_begin + active_buttons_count, [&transaction](USAGE_AND_PAGE up) {
             transaction.set_feature_button(up.UsagePage, up.Usage, true);
         });
 

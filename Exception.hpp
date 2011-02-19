@@ -35,6 +35,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <exception>
 #include <cstring>
+#include <cstdio>
+
+#if _MSC_VER
+#define snprintf _snprintf
+#endif
 
 namespace GP {
     struct BaseException : public std::exception {
@@ -63,6 +68,14 @@ namespace GP {
         SystemErrorException(int errcode) {
             char msg[64];
             snprintf(msg, 64, "System error %d (0x%x)", errcode, errcode);
+            this->set_message(msg);
+        }
+    };
+
+    struct HIDErrorException : public BaseException {
+        HIDErrorException(int errcode) {
+            char msg[64];
+            snprintf(msg, 64, "HID error %d (0x%x)", errcode, errcode);
             this->set_message(msg);
         }
     };

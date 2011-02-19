@@ -21,20 +21,17 @@
     <ClCompile Include="..\..\Gamepad_Windows.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Timer_Windows.cpp">
-      <Filter>Source Files</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\..\Gamepad.inc.cpp">
       <Filter>Header Files</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\SimulatedGamepad_Windows.cpp">
+    <ClCompile Include="..\..\Shared.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\..\Gamepad.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\GamepadChangedObserver_Windows.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\..\Exception.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -42,12 +39,6 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\GamepadChangedObserver.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Gamepad_Windows.hpp">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\..\Timer.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="..\..\..\Compatibility.hpp">
@@ -59,7 +50,7 @@
     <ClInclude Include="..\..\..\Transaction.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\SimulatedGamepad_Windows.hpp">
+    <ClInclude Include="..\..\GamepadExtra.hpp">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

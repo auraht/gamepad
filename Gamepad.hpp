@@ -99,6 +99,8 @@ namespace GP {
         Impl* _impl;
         void create_impl(void* implementation_data);
         void destroy_impl();
+
+        void perform_impl_action(void* data);
     
     private:
         AxisChangedCallback _axis_changed_callback;
@@ -124,6 +126,7 @@ namespace GP {
         void set_axis_value(Axis axis, long value);
 
         friend struct Impl;
+        friend class GamepadChangedObserver;
         
     public:
         Gamepad(void* implementation_data);
