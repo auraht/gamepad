@@ -46,7 +46,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
-      <AdditionalOptions>/wd4482 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/wd4482 /wd4996 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -63,7 +63,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <EnableEnhancedInstructionSet>StreamingSIMDExtensions2</EnableEnhancedInstructionSet>
-      <AdditionalOptions>/wd4482 %(AdditionalOptions)</AdditionalOptions>
+      <AdditionalOptions>/wd4482 /wd4996 %(AdditionalOptions)</AdditionalOptions>
     </ClCompile>
     <Link>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -73,26 +73,23 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\..\Gamepad.cpp" />
     <ClCompile Include="..\..\..\Gamepad.inc.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="..\..\GamepadChangedObserver_Windows.cpp" />
     <ClCompile Include="..\..\Gamepad_Windows.cpp" />
-    <ClCompile Include="..\..\SimulatedGamepad_Windows.cpp" />
-    <ClCompile Include="..\..\Timer_Windows.cpp" />
+    <ClCompile Include="..\..\Shared.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\..\Compatibility.hpp" />
     <ClInclude Include="..\..\..\Exception.hpp" />
     <ClInclude Include="..\..\..\Gamepad.hpp" />
     <ClInclude Include="..\..\..\GamepadChangedObserver.hpp" />
-    <ClInclude Include="..\..\..\Timer.hpp" />
     <ClInclude Include="..\..\..\Transaction.hpp" />
-    <ClInclude Include="..\..\GamepadChangedObserver_Windows.hpp" />
-    <ClInclude Include="..\..\Gamepad_Windows.hpp" />
+    <ClInclude Include="..\..\GamepadExtra.hpp" />
     <ClInclude Include="..\..\Shared.hpp" />
-    <ClInclude Include="..\..\SimulatedGamepad_Windows.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="..\..\resource.rc" />

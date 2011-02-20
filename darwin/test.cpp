@@ -33,39 +33,41 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <CoreFoundation/CoreFoundation.h>
 #include "GamepadChangedObserver.hpp"
 #include "Gamepad.hpp"
+#include <memory>
+#include <algorithm>
 
 struct Context {
     CFRunLoopSourceRef rls;
     bool quit;
 };
 
-void gamepad_axis_state_changed(void*, GP::Gamepad* gamepad, GP::Axis axis, GP::AxisState state) {
+void gamepad_axis_state_changed(GP::Gamepad* gamepad, GP::Axis axis, GP::AxisState state) {
     if (axis != GP::Axis::Z)
         printf("Gamepad %p: Axis %s %s.\n", gamepad, GP::name<char>(axis), state == GP::AxisState::start_moving ? "start moving" : "stop moving");
 }
 
-void gamepad_axis_changed(void*, GP::Gamepad* gamepad, GP::Axis axis, long new_value, unsigned nse) {
+void gamepad_axis_changed(GP::Gamepad* gamepad, GP::Axis axis, long new_value, unsigned nse) {
     if (axis != GP::Axis::Z)
         printf("Gamepad %p: Axis %s changed to %ld (%uns).\n", gamepad, GP::name<char>(axis), new_value, nse);
 }
 
-void gamepad_axis_group_state_changed(void*, GP::Gamepad* gamepad, GP::AxisGroup ag, GP::AxisState state) {
+void gamepad_axis_group_state_changed(GP::Gamepad* gamepad, GP::AxisGroup ag, GP::AxisState state) {
     if (ag != GP::AxisGroup::translation)
         printf("Gamepad %p: Axis group %s %s.\n", gamepad, GP::name<char>(ag), state == GP::AxisState::start_moving ? "start moving" : "stop moving");
 }
 
-void gamepad_axis_group_changed(void*, GP::Gamepad* gamepad, GP::AxisGroup ag, long new_values[], unsigned nse) {
+void gamepad_axis_group_changed(GP::Gamepad* gamepad, GP::AxisGroup ag, long new_values[], unsigned nse) {
     if (ag != GP::AxisGroup::translation)
         printf("Gamepad %p: Axis group %s changed to <%ld %ld %ld> (%uns).\n", gamepad, GP::name<char>(ag), new_values[0], new_values[1], new_values[2], nse);
 }
 
 
-void gamepad_button_changed(void*, GP::Gamepad* gamepad, GP::Button button, bool is_pressed) {
+void gamepad_button_changed(GP::Gamepad* gamepad, GP::Button button, bool is_pressed) {
     printf("Gamepad %p: Button %d is %s.\n", gamepad, button, is_pressed ? "down" : "up");
 }
 
 
-void gamepad_state_changed(void* self, GP::Gamepad* gamepad, GP::GamepadState state) {
+void gamepad_state_changed(void* self, const GP::GamepadChangedObserver* observer, GP::Gamepad* gamepad, GP::GamepadState state) {
     if (state == GP::GamepadState::detaching) {
         printf("Gamepad %p is detached, quitting.\n", gamepad);
         
@@ -75,11 +77,15 @@ void gamepad_state_changed(void* self, GP::Gamepad* gamepad, GP::GamepadState st
     } else {
         printf("Gamepad %p is attached.\n", gamepad);
         
-        gamepad->set_axis_changed_callback(NULL, gamepad_axis_changed);
-        gamepad->set_axis_state_changed_callback(NULL, gamepad_axis_state_changed);
-        gamepad->set_axis_group_changed_callback(NULL, gamepad_axis_group_changed);
-        gamepad->set_axis_group_state_changed_callback(NULL, gamepad_axis_group_state_changed);
-        gamepad->set_button_changed_callback(NULL, gamepad_button_changed);
+        std::for_each(observer->cbegin(), observer->cend(), [](GP::Gamepad& gamepad) {
+            printf(" - Gamepad %p\n", &gamepad);
+        });
+        
+        gamepad->set_axis_changed_callback(gamepad_axis_changed);
+        gamepad->set_axis_state_changed_callback(gamepad_axis_state_changed);
+        gamepad->set_axis_group_changed_callback(gamepad_axis_group_changed);
+        gamepad->set_axis_group_state_changed_callback(gamepad_axis_group_state_changed);
+        gamepad->set_button_changed_callback(gamepad_button_changed);
     }
 }
 
@@ -93,8 +99,8 @@ int main () {
     
     Context ctx = {rls, false};
     
-    GP::GamepadChangedObserver* observer = GP::GamepadChangedObserver::create(&ctx, gamepad_state_changed, rl);
-
+    GP::GamepadChangedObserver observer (&ctx, gamepad_state_changed, rl);
+    
     while (CFRunLoopRunInMode(kCFRunLoopDefaultMode, 1.0, true)) {
         if (ctx.quit)
             break;
@@ -102,8 +108,6 @@ int main () {
     
     CFRunLoopSourceInvalidate(rls);
     CFRelease(rls);
-    
-    delete observer;
     
     return 0;
 }

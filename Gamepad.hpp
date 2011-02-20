@@ -72,10 +72,10 @@ namespace GP {
         start_moving
     };
         
-    static Axis axis_from_usage(int usage_page, int usage);
-    static Button button_from_usage(int usage_page, int usage);
-    static bool valid(Axis axis);
-    static bool valid(AxisGroup axis_group);
+    static inline Button button_from_usage(int usage_page, int usage) { return static_cast<Button>((usage_page - 9) << 16 | usage); }
+    static Axis axis_from_usage(int usage_page, int usage);    
+    static inline bool valid(Axis axis) { return axis >= static_cast<Axis>(0) && axis < Axis::count; }
+    static inline bool valid(AxisGroup axis_group) { return axis_group >= static_cast<AxisGroup>(0) && axis_group < AxisGroup::group_count; }
 
     template <typename T>
     static const T* name(Axis);
@@ -86,23 +86,27 @@ namespace GP {
 
     class Gamepad {
     public:
-        typedef void (*AxisChangedCallback)(void* self, Gamepad* gamepad, Axis axis, long new_value, unsigned nanoseconds_elapsed);
-        typedef void (*ButtonChangedCallback)(void* self, Gamepad* gamepad, Button button, bool is_pressed);
-        typedef void (*AxisStateChangedCallback)(void* self, Gamepad* gamepad, Axis axis, AxisState state);
+        typedef void (*AxisChangedCallback)(Gamepad* gamepad, Axis axis, long new_value, unsigned nanoseconds_elapsed);
+        typedef void (*ButtonChangedCallback)(Gamepad* gamepad, Button button, bool is_pressed);
+        typedef void (*AxisStateChangedCallback)(Gamepad* gamepad, Axis axis, AxisState state);
         
-        typedef void (*AxisGroupChangedCallback)(void* self, Gamepad* gamepad, AxisGroup axis_group, long new_values[], unsigned nanoseconds_elapsed);
-        typedef void (*AxisGroupStateChangedCallback)(void* self, Gamepad* gamepad, AxisGroup axis, AxisState state);
+        typedef void (*AxisGroupChangedCallback)(Gamepad* gamepad, AxisGroup axis_group, long new_values[], unsigned nanoseconds_elapsed);
+        typedef void (*AxisGroupStateChangedCallback)(Gamepad* gamepad, AxisGroup axis, AxisState state);
         
-    private:                
-        void* _axis_changed_self;
+    private:
+        struct Impl;
+        
+        Impl* _impl;
+        void create_impl(void* implementation_data);
+        void destroy_impl();
+
+        void perform_impl_action(void* data);
+    
+    private:
         AxisChangedCallback _axis_changed_callback;
-        void* _button_changed_self;
         ButtonChangedCallback _button_changed_callback;
-        void* _axis_state_self;
         AxisStateChangedCallback _axis_state_callback;
-        void* _axis_group_changed_self;
         AxisGroupChangedCallback _axis_group_changed_callback;
-        void* _axis_group_state_changed_self;
         AxisGroupStateChangedCallback _axis_group_state_changed_callback;
         
         void* _associated_object;
@@ -114,25 +118,37 @@ namespace GP {
         AxisState _old_axis_state[static_cast<int>(Axis::count)];
         AxisState _old_axis_group_state[static_cast<int>(AxisGroup::group_count)];
         
-    protected:
-        void set_bounds_for_axis(Axis axis, long minimum, long maximum);
+    private:
         void handle_axes_change(unsigned nanoseconds_elapsed);
+
+        void set_bounds_for_axis(Axis axis, long minimum, long maximum);        
         void handle_button_change(Button button, bool is_pressed);
         void set_axis_value(Axis axis, long value);
+
+        friend struct Impl;
+        friend class GamepadChangedObserver;
         
     public:
-        Gamepad();
+        Gamepad(void* implementation_data);
+        // ^ This has to be public due to std::make_shared.
+
+        ~Gamepad() {
+            if (_associated_deleter)
+                _associated_deleter(_associated_object);
+            this->destroy_impl();
+        }
     
-        void set_axis_changed_callback(void* self, AxisChangedCallback callback);
-        void set_axis_state_changed_callback(void* self, AxisStateChangedCallback callback);
-        void set_button_changed_callback(void* self, ButtonChangedCallback callback);
+        void set_axis_changed_callback(AxisChangedCallback callback) { _axis_changed_callback = callback; }
+        void set_axis_state_changed_callback(AxisStateChangedCallback callback) { _axis_state_callback = callback; }
+        void set_button_changed_callback(ButtonChangedCallback callback) { _button_changed_callback = callback; }
         
         // These events are called when any axis in the group is changed.
-        void set_axis_group_changed_callback(void* self, AxisGroupChangedCallback callback);
-        void set_axis_group_state_changed_callback(void* self, AxisGroupStateChangedCallback callback);
+        void set_axis_group_changed_callback(AxisGroupChangedCallback callback) { _axis_group_changed_callback = callback; }
+        void set_axis_group_state_changed_callback(AxisGroupStateChangedCallback callback) { _axis_group_state_changed_callback = callback; }
         
         /// Return the upper limit of value the axis can take.
-        long axis_bound(Axis axis) const;
+        long axis_bound(Axis axis) const { return valid(axis) ? _bounds[static_cast<int>(axis)] : 0; }
+
 
         //## WARNING: THE FOLLOWING TWO METHODS ARE NOT TESTED! 
         //            Testing will be delayed to when I've met a device that the
@@ -140,16 +156,14 @@ namespace GP {
         //             productive environment.
         
         // send output and features from a transaction.
-        virtual bool commit_transaction(const Transaction&) { return false; }
+        bool commit_transaction(const Transaction&);
         // get features from the device and encode into a transaction.
-        virtual bool get_features(Transaction&) { return false; }
+        bool get_features(Transaction&);
         
         //## END WARNING
         
-        void associate(void* object, void (*deleter)(void*) = NULL);        
-        void* associated_object() const;
-        
-        virtual ~Gamepad();
+        void associate(void* object, void (*deleter)(void*) = NULL);
+        void* associated_object() const { return _associated_object; }
     };
 }
 

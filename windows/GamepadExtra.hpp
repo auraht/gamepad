@@ -1,7 +1,6 @@
 /*
  
-GamepadChangedObserver_Windows.hpp ... Implementation of GamepadChangedObserver
-                                       for Windows.
+GamepadExtra.hpp ... Extra structures for implementation of Gamepad in Windows.
 
 Copyright (c) 2011  aura Human Technology Ltd.  <rnd@auraht.com>
 All rights reserved.
@@ -31,43 +30,38 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef GAMEPAD_CHANGED_OBSERVER_WINDOWS_HPP_5qxep9lbh5ubx1or
-#define GAMEPAD_CHANGED_OBSERVER_WINDOWS_HPP_5qxep9lbh5ubx1or 1
+#ifndef GAMEPAD_EXTRA_HPP_85k167iqxcyjh5mi
+#define GAMEPAD_EXTRA_HPP_85k167iqxcyjh5mi 1
 
-#include "../GamepadChangedObserver.hpp"
-#include <unordered_map>
-#include <memory>
+#include "../Gamepad.hpp"
 #include <Windows.h>
 
 namespace GP {
-    class Gamepad_Windows;
-    class SimulatedGamepad_Windows;
+    struct GamepadData {
+        HWND hwnd;
+        LPCTSTR path;
+        HANDLE device_handle;
+    };
 
-    class GamepadChangedObserver_Windows : public GamepadChangedObserver {
-    private:
-		HWND _hwnd;
-        HDEVNOTIFY _notif;
-        std::unordered_map<HANDLE, std::shared_ptr<Gamepad_Windows> > _active_devices;
-
-        SimulatedGamepad_Windows* _simulated_gamepad;
-
-        void insert_device_with_path(HWND hwnd, LPCTSTR path);
-        void insert_simulated_gamepad(HWND hwnd);
-        void populate_existing_devices(const GUID* phid_guid);
-
-        static LRESULT CALLBACK message_handler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
-        
-    protected:
-        virtual void observe_impl();
-        void unobserve_impl();
-        
-    public:
-        GamepadChangedObserver_Windows(void* self, Callback callback, HWND hwnd)
-            : GamepadChangedObserver(self, callback), _hwnd(hwnd), _notif(NULL), _simulated_gamepad(NULL) {}
-              
-        ~GamepadChangedObserver_Windows() {
-            this->unobserve_impl();
-        }
+    struct GamepadReport {
+        enum {
+            input_report,
+            mouse_move,
+            keyboard_change
+        } tag;
+        union {
+            struct {
+                unsigned nanoseconds_elapsed;
+            } input;
+            struct {
+                int x;
+                int y;
+            } mouse;
+            struct {
+                UINT key;
+                bool is_pressed;
+            } keyboard;
+        };
     };
 }
 

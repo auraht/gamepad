@@ -58,15 +58,6 @@ namespace std {
 
 
 namespace GP {
-    
-    static inline bool valid(Axis axis) {
-        return axis >= static_cast<Axis>(0) && axis < Axis::count;
-    }
-    
-    static inline bool valid(AxisGroup axis_group) {
-        return axis_group >= static_cast<AxisGroup>(0) && axis_group < AxisGroup::group_count;
-    }
-    
     inline Axis axis_from_usage(int usage_page, int usage) {
         if (usage_page != 1)
             return Axis::invalid;
@@ -78,23 +69,6 @@ namespace GP {
             return Axis::invalid;
     }
     
-    inline Button button_from_usage(int usage_page, int usage) {
-        return static_cast<Button>((usage_page - 9) << 16 | usage);
-    }
-    
-    inline Gamepad::Gamepad() : _axis_changed_self(NULL), _axis_changed_callback(NULL),
-                    _button_changed_self(NULL), _button_changed_callback(NULL),
-                    _axis_state_self(NULL), _axis_state_callback(NULL),
-                    _axis_group_changed_self(NULL), _axis_group_changed_callback(NULL),
-                    _axis_group_state_changed_self(NULL), _axis_group_state_changed_callback(NULL),
-                    _associated_object(NULL), _associated_deleter(NULL) {
-        memset(_centroid, 0, sizeof(_centroid));
-        memset(_bounds, 0, sizeof(_bounds));
-        memset(_cached_axis_values, 0, sizeof(_cached_axis_values));
-        memset(_old_axis_state, 0, sizeof(_old_axis_state));
-        memset(_old_axis_group_state, 0, sizeof(_old_axis_group_state));
-    }
-
     inline void Gamepad::set_bounds_for_axis(Axis axis, long minimum, long maximum) {
         if (valid(axis)) {
             int index = static_cast<int>(axis);
@@ -103,97 +77,17 @@ namespace GP {
             _cached_axis_values[index] = 0;
         }
     }
-
+    
+    inline void Gamepad::handle_button_change(Button button, bool is_pressed) {
+        if (_button_changed_callback)
+            _button_changed_callback(this, button, is_pressed);
+    }
+    
     inline void Gamepad::set_axis_value(Axis axis, long value) {
         if (valid(axis)) {
             int index = static_cast<int>(axis);
             _cached_axis_values[index] = value - _centroid[index];
         }
-    }
-    
-    inline void Gamepad::handle_axes_change(unsigned nanoseconds_elapsed) {
-        if (_axis_changed_callback || _axis_state_callback) {
-            for (int i = 0; i < static_cast<int>(Axis::count); ++ i) {
-                long value = _cached_axis_values[i];
-                if (value != 0) {
-                    if (_axis_state_callback && _old_axis_state[i] != AxisState::start_moving) {
-                        _old_axis_state[i] = AxisState::start_moving;
-                        _axis_state_callback(_axis_state_self, this, static_cast<Axis>(i), AxisState::start_moving);
-                    }
-                    if (_axis_changed_callback)
-                        _axis_changed_callback(_axis_changed_self, this, static_cast<Axis>(i), value, nanoseconds_elapsed);
-                } else if (_axis_state_callback && _old_axis_state[i] != AxisState::stop_moving) {
-                    _old_axis_state[i] = AxisState::stop_moving;
-                    _axis_state_callback(_axis_state_self, this, static_cast<Axis>(i), AxisState::stop_moving);
-                }
-            }
-        }
-        
-        if (_axis_group_changed_callback || _axis_group_state_changed_callback) {
-            Axis axis_groups[][4] = {
-                {Axis::X, Axis::Y, Axis::Z, Axis::invalid},
-                {Axis::Rx, Axis::Ry, Axis::Rz, Axis::invalid},
-                {Axis::Vx, Axis::Vy, Axis::Vz, Axis::invalid},
-                {Axis::Vbrx, Axis::Vbry, Axis::Vbrz, Axis::invalid},
-                {Axis::X, Axis::Y, Axis::invalid, Axis::invalid}
-            };
-            
-            for (int i = 0; i < static_cast<int>(AxisGroup::group_count); ++ i) {
-                long values[sizeof(*axis_groups)/sizeof(**axis_groups)];
-                bool modified = false;
-                for (unsigned j = 0; j < sizeof(values)/sizeof(*values); ++ j) {
-                    if (axis_groups[i][j] == Axis::invalid)
-                        break;
-                    
-                    values[j] = _cached_axis_values[static_cast<int>(axis_groups[i][j])];
-                    if (values[j])
-                        modified = true;
-                }
-                
-                if (modified) {
-                    if (_axis_group_state_changed_callback && _old_axis_group_state[i] != AxisState::start_moving) {
-                        _old_axis_group_state[i] = AxisState::start_moving;
-                        _axis_group_state_changed_callback(_axis_group_state_changed_self, this, static_cast<AxisGroup>(i), AxisState::start_moving);
-                    }
-                    if (_axis_group_changed_callback)
-                        _axis_group_changed_callback(_axis_group_changed_self, this, static_cast<AxisGroup>(i), values, nanoseconds_elapsed);
-                } else if (_axis_group_state_changed_callback && _old_axis_group_state[i] != AxisState::stop_moving) {
-                    _old_axis_group_state[i] = AxisState::stop_moving;
-                    _axis_group_state_changed_callback(_axis_group_state_changed_self, this, static_cast<AxisGroup>(i), AxisState::stop_moving);
-                }
-            }
-        }
-    }
-    
-    inline void Gamepad::handle_button_change(Button button, bool is_pressed) {
-        if (_button_changed_callback)
-            _button_changed_callback(_button_changed_self, this, button, is_pressed);
-    }
-    
-    inline void Gamepad::set_axis_changed_callback(void* self, AxisChangedCallback callback) {
-        _axis_changed_self = self;
-        _axis_changed_callback = callback;
-    }
-    inline void Gamepad::set_axis_state_changed_callback(void* self, AxisStateChangedCallback callback) {
-        _axis_state_self = self;
-        _axis_state_callback = callback;
-    }
-    inline void Gamepad::set_button_changed_callback(void* self, ButtonChangedCallback callback) {
-        _button_changed_self = self;
-        _button_changed_callback = callback;
-    }
-    inline void Gamepad::set_axis_group_changed_callback(void* self, AxisGroupChangedCallback callback) {
-        _axis_group_changed_self = self;
-        _axis_group_changed_callback = callback;
-    }
-    inline void Gamepad::set_axis_group_state_changed_callback(void* self, AxisGroupStateChangedCallback callback) {
-        _axis_group_state_changed_self = self;
-        _axis_group_state_changed_callback = callback;
-    }
-
-    
-    inline long Gamepad::axis_bound(Axis axis) const {
-        return valid(axis) ? _bounds[static_cast<int>(axis)] : 0;
     }
     
     inline void Gamepad::associate(void* object, void (*deleter)(void*)) {
@@ -203,19 +97,7 @@ namespace GP {
         _associated_deleter = deleter;
     }
     
-    inline void* Gamepad::associated_object() const {
-        return _associated_object;
-    }
-    
-    inline Gamepad::~Gamepad() {
-        if (_associated_deleter)
-            _associated_deleter(_associated_object);
-    }
-
-
-    
     //---- some way to safely combine the following 8 functions?
-    
     template <>
     inline const char* name(Axis axis) { 
         const char* kAxisNames[] = {

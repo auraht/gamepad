@@ -34,47 +34,97 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define GAMEPAD_CHANGED_OBSERVER_HPP_rskkt3ru5raa714i 1
 
 #include "Compatibility.hpp"
+#include <iterator>
+#include <memory>
 
+#ifndef _AURAHT_FRIENDS
+#define _AURAHT_FRIENDS
+#endif
 
 namespace GP {
     class Gamepad;
+
 
     ENUM_CLASS GamepadState {
         attached,
         detaching
     };
 
+
     class GamepadChangedObserver {
-    public:        
-    
-        typedef void (*Callback)(void* self, Gamepad* gamepad, GamepadState state);
+    public:            
+        typedef void (*Callback)(void* self, const GamepadChangedObserver* observer, Gamepad* gamepad, GamepadState state);
     
     private:
+        struct Impl;
+        Impl* _impl;
+        EXPORT void create_impl(void* eventloop);
+        
         void* _self;
         Callback _callback;
+
+    public:
+        struct const_iterator : public std::iterator<std::forward_iterator_tag, Gamepad> {
+        private:
+            struct Impl;
+            struct ImplDeleter {
+                EXPORT void operator() (Impl* impl) const;
+            };
+
+            std::unique_ptr<Impl, ImplDeleter> _impl;
+            const_iterator(Impl* impl) : _impl(impl) {};
+
+        public:
+            typedef std::forward_iterator_tag iterator_tag;
         
-    protected:
-        virtual void observe_impl() = 0;
-        
+            EXPORT const_iterator& operator++();
+            EXPORT const_iterator operator++(int);
+            
+            EXPORT Gamepad& operator*() const;
+            EXPORT Gamepad& operator->() const { return **this; }
+            
+            const_iterator() : _impl(static_cast<Impl*>(NULL)) {}
+            
+            EXPORT const_iterator(const const_iterator& other);
+            EXPORT const_iterator(const_iterator&& other);
+            EXPORT const_iterator& operator=(const const_iterator& other);
+            EXPORT const_iterator& operator=(const_iterator&& other);
+            
+            EXPORT bool operator==(const const_iterator& other) const;
+            EXPORT bool operator!=(const const_iterator& other) const;
+            
+            friend class GamepadChangedObserver;
+        };
+        typedef const_iterator iterator;
+
+    private:        
         void handle_event(Gamepad* gamepad, GamepadState state) const {
             if (_callback)
-                _callback(_self, gamepad, state);
+                _callback(_self, this, gamepad, state);
         }
-        
-        GamepadChangedObserver(void* self, Callback callback)
-            : _self(self), _callback(callback) {}
-        
-        static EXPORT GamepadChangedObserver* create_impl(void* self, Callback callback, void* eventloop);
+                
+        friend struct Impl;
         
     public:
-        // remember to use 'delete' to kill the observer.
-        static GamepadChangedObserver* create(void* self, Callback callback, void* eventloop) {
-            GamepadChangedObserver* retval = create_impl(self, callback, eventloop);
-            retval->observe_impl();
-            return retval;
+        GamepadChangedObserver(void* self, Callback callback, void* eventloop) : _self(self), _callback(callback) {
+            this->create_impl(eventloop);
         }
-
-        virtual ~GamepadChangedObserver() {}
+        
+        EXPORT ~GamepadChangedObserver();
+        
+    private:
+        GamepadChangedObserver(const GamepadChangedObserver&);
+        GamepadChangedObserver(GamepadChangedObserver&&);
+        
+    public:
+        EXPORT const_iterator cbegin() const;
+        EXPORT const_iterator cend() const;
+        iterator begin() const { return this->cbegin(); }
+        iterator end() const { return this->cend(); }
+        
+        /// Attach a simulated gamepad and return the attached one.
+        /// returns NULL if this is not supported.
+        EXPORT Gamepad* attach_simulated_gamepad();
     };
     
 }
