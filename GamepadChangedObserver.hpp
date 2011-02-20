@@ -53,11 +53,16 @@ namespace GP {
 
     class GamepadChangedObserver {
     public:            
-        typedef void (*Callback)(void* self, const GamepadChangedObserver* observer, Gamepad* gamepad, GamepadState state);
+        typedef void (*Callback)(void* self, const GamepadChangedObserver& observer, Gamepad& gamepad, GamepadState state);
     
     private:
         struct Impl;
-        Impl* _impl;
+        struct ImplDeleter {
+            EXPORT void operator() (Impl* impl) const;
+        };
+        
+        std::unique_ptr<Impl, ImplDeleter> _impl;
+        
         EXPORT void create_impl(void* eventloop);
         
         void* _self;
@@ -98,9 +103,9 @@ namespace GP {
         typedef const_iterator iterator;
 
     private:        
-        void handle_event(Gamepad* gamepad, GamepadState state) const {
+        void handle_event(Gamepad& gamepad, GamepadState state) const {
             if (_callback)
-                _callback(_self, this, gamepad, state);
+                _callback(_self, *this, gamepad, state);
         }
                 
         friend struct Impl;
@@ -110,17 +115,18 @@ namespace GP {
             this->create_impl(eventloop);
         }
         
-        EXPORT ~GamepadChangedObserver();
-        
     private:
         GamepadChangedObserver(const GamepadChangedObserver&);
         GamepadChangedObserver(GamepadChangedObserver&&);
-        
+        GamepadChangedObserver& operator=(const GamepadChangedObserver&);
+        GamepadChangedObserver& operator=(GamepadChangedObserver&&);
+
     public:
         EXPORT const_iterator cbegin() const;
         EXPORT const_iterator cend() const;
         iterator begin() const { return this->cbegin(); }
         iterator end() const { return this->cend(); }
+        
         
         /// Attach a simulated gamepad and return the attached one.
         /// returns NULL if this is not supported.

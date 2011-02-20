@@ -35,6 +35,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <utility>
 #include <climits>
+#include <memory>
 #include "Compatibility.hpp"
 
 namespace GP {
@@ -86,20 +87,22 @@ namespace GP {
 
     class Gamepad {
     public:
-        typedef void (*AxisChangedCallback)(Gamepad* gamepad, Axis axis, long new_value, unsigned nanoseconds_elapsed);
-        typedef void (*ButtonChangedCallback)(Gamepad* gamepad, Button button, bool is_pressed);
-        typedef void (*AxisStateChangedCallback)(Gamepad* gamepad, Axis axis, AxisState state);
+        typedef void (*AxisChangedCallback)(Gamepad& gamepad, Axis axis, long new_value, unsigned nanoseconds_elapsed);
+        typedef void (*ButtonChangedCallback)(Gamepad& gamepad, Button button, bool is_pressed);
+        typedef void (*AxisStateChangedCallback)(Gamepad& gamepad, Axis axis, AxisState state);
         
-        typedef void (*AxisGroupChangedCallback)(Gamepad* gamepad, AxisGroup axis_group, long new_values[], unsigned nanoseconds_elapsed);
-        typedef void (*AxisGroupStateChangedCallback)(Gamepad* gamepad, AxisGroup axis, AxisState state);
+        typedef void (*AxisGroupChangedCallback)(Gamepad& gamepad, AxisGroup axis_group, long new_values[], unsigned nanoseconds_elapsed);
+        typedef void (*AxisGroupStateChangedCallback)(Gamepad& gamepad, AxisGroup axis, AxisState state);
         
     private:
         struct Impl;
+        struct ImplDeleter {
+            void operator() (Impl* impl) const;
+        };
         
-        Impl* _impl;
-        void create_impl(void* implementation_data);
-        void destroy_impl();
+        std::unique_ptr<Impl, ImplDeleter> _impl;
 
+        void create_impl(void* implementation_data);
         void perform_impl_action(void* data);
     
     private:
@@ -109,8 +112,7 @@ namespace GP {
         AxisGroupChangedCallback _axis_group_changed_callback;
         AxisGroupStateChangedCallback _axis_group_state_changed_callback;
         
-        void* _associated_object;
-        void (*_associated_deleter)(void* _object);
+        std::unique_ptr<void, void(*)(void*)> _associated_object;
         
         long _centroid[static_cast<int>(Axis::count)];
         long _bounds[static_cast<int>(Axis::count)];
@@ -128,15 +130,15 @@ namespace GP {
         friend struct Impl;
         friend class GamepadChangedObserver;
         
+    private:
+        Gamepad(const Gamepad&);
+        Gamepad(Gamepad&&);
+        Gamepad& operator=(const Gamepad&);
+        Gamepad& operator=(Gamepad&&);
+        
     public:
         Gamepad(void* implementation_data);
         // ^ This has to be public due to std::make_shared.
-
-        ~Gamepad() {
-            if (_associated_deleter)
-                _associated_deleter(_associated_object);
-            this->destroy_impl();
-        }
     
         void set_axis_changed_callback(AxisChangedCallback callback) { _axis_changed_callback = callback; }
         void set_axis_state_changed_callback(AxisStateChangedCallback callback) { _axis_state_callback = callback; }
@@ -163,7 +165,7 @@ namespace GP {
         //## END WARNING
         
         void associate(void* object, void (*deleter)(void*) = NULL);
-        void* associated_object() const { return _associated_object; }
+        void* associated_object() const { return _associated_object.get(); }
     };
 }
 

@@ -114,13 +114,13 @@ namespace GP {
     void GamepadChangedObserver::Impl::add_active_device(IOHIDDeviceRef device, GamepadChangedObserver* observer) {
         auto gamepad = std::make_shared<Gamepad>(device);
         _active_devices.insert({device, gamepad});
-        observer->handle_event(gamepad.get(), GamepadState::attached);
+        observer->handle_event(*gamepad, GamepadState::attached);
     }
     
     void GamepadChangedObserver::Impl::remove_active_device(IOHIDDeviceRef device, GamepadChangedObserver* observer) {
         auto it = _active_devices.find(device);
-        auto gamepad = it->second.get();
-        observer->handle_event(gamepad, GamepadState::detaching);
+        auto gamepad = (it->second);
+        observer->handle_event(*gamepad, GamepadState::detaching);
         _active_devices.erase(it);
     }
     
@@ -162,17 +162,16 @@ namespace GP {
         _manager.set_device_matching_multiple(alternatives);
     }
     
+    void GamepadChangedObserver::ImplDeleter::operator() (Impl* impl) const {
+        delete impl;
+    }
     
     void GamepadChangedObserver::create_impl(void* eventloop) {
-        _impl = new Impl(this, static_cast<CFRunLoopRef>(eventloop));
+        _impl = std::unique_ptr<Impl, ImplDeleter>(new Impl(this, static_cast<CFRunLoopRef>(eventloop)));
     }
     
     Gamepad* GamepadChangedObserver::attach_simulated_gamepad() {
         return NULL;
-    }
-    
-    GamepadChangedObserver::~GamepadChangedObserver() {
-        delete _impl;
     }
     
 

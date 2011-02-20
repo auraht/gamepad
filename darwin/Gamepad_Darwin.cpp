@@ -85,13 +85,13 @@ namespace GP {
         Impl(Gamepad* gamepad, IOHIDDeviceRef device);
     };
     
-    void Gamepad::create_impl(void* implementation_data) {
-        auto device = static_cast<IOHIDDeviceRef>(implementation_data);
-        _impl = new Impl(this, device);
+    void Gamepad::ImplDeleter::operator() (Impl* impl) const {
+        delete impl;
     }
     
-    void Gamepad::destroy_impl() {
-        delete _impl;
+    void Gamepad::create_impl(void* implementation_data) {
+        auto device = static_cast<IOHIDDeviceRef>(implementation_data);
+        _impl = std::unique_ptr<Impl, ImplDeleter>(new Impl(this, device));
     }
     
     

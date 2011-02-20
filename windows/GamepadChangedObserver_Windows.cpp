@@ -79,13 +79,13 @@ namespace GP {
         Gamepad* insert_device_with_path(HWND hwnd, LPCTSTR path);
     };
 
-    EXPORT void GamepadChangedObserver::create_impl(void* eventloop) {
-        auto hwnd = static_cast<HWND>(eventloop);
-        _impl = new Impl(hwnd, this);
+    EXPORT void GamepadChangedObserver::ImplDeleter::operator() (Impl* impl) const {
+        delete impl;
     }
 
-    EXPORT GamepadChangedObserver::~GamepadChangedObserver() {
-        delete _impl;
+    EXPORT void GamepadChangedObserver::create_impl(void* eventloop) {
+        auto hwnd = static_cast<HWND>(eventloop);
+        _impl = std::unique_ptr<Impl, ImplDeleter>(new Impl(hwnd, this));
     }
 
     GamepadChangedObserver::Impl::Impl(HWND hwnd, GamepadChangedObserver* this_)
@@ -147,8 +147,7 @@ namespace GP {
             lastWndProc = static_cast<WNDPROC>( RemoveProp(hwnd, atoms.lastWndProc) );
             this_ = static_cast<GamepadChangedObserver*>( RemoveProp(hwnd, atoms.this_) );
             this_->_impl->_hwnd = NULL;
-            delete this_->_impl;
-            this_->_impl = NULL;
+            this_->_impl.reset();
             break;
 
         case device_attached_message: 
@@ -159,7 +158,7 @@ namespace GP {
                     ? this_->_impl->insert_device_with_path(hwnd, detail->DevicePath) 
                     : this_->_impl->_simulated_gamepad;
                 if (gamepad != NULL)
-                    this_->handle_event(gamepad, GamepadState::attached);
+                    this_->handle_event(*gamepad, GamepadState::attached);
                 free(detail);
             }
             return TRUE;
@@ -214,7 +213,7 @@ namespace GP {
                         GET_THIS;
                         auto dev_path = reinterpret_cast<PDEV_BROADCAST_DEVICEINTERFACE>(event_data)->dbcc_name;
                         Gamepad* gamepad = this_->_impl->insert_device_with_path(hwnd, dev_path);
-                        this_->handle_event(gamepad, GamepadState::attached);
+                        this_->handle_event(*gamepad, GamepadState::attached);
                     }
                     break;
 
@@ -225,7 +224,7 @@ namespace GP {
                         //## TODO: Do we need a lock here?
                         GET_THIS;
                         auto it = this_->_impl->_active_devices.find(hdevice);
-                        this_->handle_event(it->second.get(), GamepadState::detaching);
+                        this_->handle_event(*(it->second), GamepadState::detaching);
                         this_->_impl->_active_devices.erase(it);
                     }
                     break;

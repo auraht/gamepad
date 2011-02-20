@@ -80,7 +80,7 @@ namespace GP {
     
     inline void Gamepad::handle_button_change(Button button, bool is_pressed) {
         if (_button_changed_callback)
-            _button_changed_callback(this, button, is_pressed);
+            _button_changed_callback(*this, button, is_pressed);
     }
     
     inline void Gamepad::set_axis_value(Axis axis, long value) {
@@ -88,13 +88,6 @@ namespace GP {
             int index = static_cast<int>(axis);
             _cached_axis_values[index] = value - _centroid[index];
         }
-    }
-    
-    inline void Gamepad::associate(void* object, void (*deleter)(void*)) {
-        if (_associated_deleter)
-            _associated_deleter(_associated_object);
-        _associated_object = object;
-        _associated_deleter = deleter;
     }
     
     //---- some way to safely combine the following 8 functions?

@@ -35,10 +35,12 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "Gamepad.hpp"
 
 namespace GP {
+    static void no_op(void*) {}
+
     Gamepad::Gamepad(void* implementation_data)
         : _axis_changed_callback(NULL), _button_changed_callback(NULL), _axis_state_callback(NULL),
           _axis_group_changed_callback(NULL), _axis_group_state_changed_callback(NULL),
-          _associated_object(NULL), _associated_deleter(NULL) {
+          _associated_object(NULL, no_op) {
 
         memset(_centroid, 0, sizeof(_centroid));
         memset(_bounds, 0, sizeof(_bounds));
@@ -49,6 +51,13 @@ namespace GP {
         this->create_impl(implementation_data);
     }
     
+    
+    void Gamepad::associate(void* object, void (*deleter)(void*)) {
+        if (deleter == NULL)
+            deleter = no_op;
+        _associated_object = std::unique_ptr<void, void(*)(void*)>(object, deleter);
+    }
+
     void Gamepad::handle_axes_change(unsigned nanoseconds_elapsed) {
         if (_axis_changed_callback || _axis_state_callback) {
             for (int i = 0; i < static_cast<int>(Axis::count); ++ i) {
@@ -56,13 +65,13 @@ namespace GP {
                 if (value != 0) {
                     if (_axis_state_callback && _old_axis_state[i] != AxisState::start_moving) {
                         _old_axis_state[i] = AxisState::start_moving;
-                        _axis_state_callback(this, static_cast<Axis>(i), AxisState::start_moving);
+                        _axis_state_callback(*this, static_cast<Axis>(i), AxisState::start_moving);
                     }
                     if (_axis_changed_callback)
-                        _axis_changed_callback(this, static_cast<Axis>(i), value, nanoseconds_elapsed);
+                        _axis_changed_callback(*this, static_cast<Axis>(i), value, nanoseconds_elapsed);
                 } else if (_axis_state_callback && _old_axis_state[i] != AxisState::stop_moving) {
                     _old_axis_state[i] = AxisState::stop_moving;
-                    _axis_state_callback(this, static_cast<Axis>(i), AxisState::stop_moving);
+                    _axis_state_callback(*this, static_cast<Axis>(i), AxisState::stop_moving);
                 }
             }
         }
@@ -91,13 +100,13 @@ namespace GP {
                 if (modified) {
                     if (_axis_group_state_changed_callback && _old_axis_group_state[i] != AxisState::start_moving) {
                         _old_axis_group_state[i] = AxisState::start_moving;
-                        _axis_group_state_changed_callback(this, static_cast<AxisGroup>(i), AxisState::start_moving);
+                        _axis_group_state_changed_callback(*this, static_cast<AxisGroup>(i), AxisState::start_moving);
                     }
                     if (_axis_group_changed_callback)
-                        _axis_group_changed_callback(this, static_cast<AxisGroup>(i), values, nanoseconds_elapsed);
+                        _axis_group_changed_callback(*this, static_cast<AxisGroup>(i), values, nanoseconds_elapsed);
                 } else if (_axis_group_state_changed_callback && _old_axis_group_state[i] != AxisState::stop_moving) {
                     _old_axis_group_state[i] = AxisState::stop_moving;
-                    _axis_group_state_changed_callback(this, static_cast<AxisGroup>(i), AxisState::stop_moving);
+                    _axis_group_state_changed_callback(*this, static_cast<AxisGroup>(i), AxisState::stop_moving);
                 }
             }
         }

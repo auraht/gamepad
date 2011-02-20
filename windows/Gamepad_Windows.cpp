@@ -267,15 +267,16 @@ namespace GP {
         return true;
     }
 
+    void Gamepad::ImplDeleter::operator() (Impl* impl) const {
+        delete impl;
+    }
+
     void Gamepad::create_impl(void* implementation_data) {
         auto data = static_cast<GamepadData*>(implementation_data);
-        _impl = new Impl(data->hwnd, data->path, this);
+        _impl = std::unique_ptr<Impl, ImplDeleter>(new Impl(data->hwnd, data->path, this));
         data->device_handle = _impl->device_handle();
     }
 
-    void Gamepad::destroy_impl() {
-        delete _impl;
-    }
 
 
     void Gamepad::Impl::handle_input_report(unsigned nanoseconds_elapsed) {
@@ -318,17 +319,16 @@ namespace GP {
 
     void Gamepad::perform_impl_action(void* data) {
         auto report = static_cast<GamepadReport*>(data);
-        auto impl = this->_impl;
 
         switch (report->tag) {
         case GamepadReport::input_report:
-            impl->handle_input_report(report->input.nanoseconds_elapsed);
+            this->_impl->handle_input_report(report->input.nanoseconds_elapsed);
             break;
         case GamepadReport::mouse_move:
-            impl->handle_mousemove_event(report->mouse.x, report->mouse.y);
+            this->_impl->handle_mousemove_event(report->mouse.x, report->mouse.y);
             break;
         case GamepadReport::keyboard_change:
-            impl->handle_key_event(report->keyboard.key, report->keyboard.is_pressed);
+            this->_impl->handle_key_event(report->keyboard.key, report->keyboard.is_pressed);
             break;
         default:
             break;
