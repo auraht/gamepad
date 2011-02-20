@@ -192,6 +192,55 @@ namespace GP {
     };
 
 
+    /// An RAII wrapper of a Timer.
+    class Timer {
+        HWND _hwnd;
+        UINT_PTR _timer;
+        UINT _interval;
+        TIMERPROC _callback;
+        bool _running;
+
+        Timer(const Timer&);
+        Timer& operator=(const Timer&);
+    public:
+        Timer() : _timer(0), _running(false) {};
+        Timer(Timer&& other)
+            : _hwnd(other._hwnd), _timer(other._timer), _interval(other._interval), 
+              _callback(other._callback), _running(other._running) 
+        { 
+            other._timer = 0; 
+            other._running = false; 
+        }
+        Timer& operator=(Timer&& other) {
+            std::swap(_hwnd, other._hwnd);
+            std::swap(_timer, other._timer);
+            _interval = other._interval;
+            _callback = other._callback;
+            std::swap(_running, other._running);
+            return *this; 
+        }
+        ~Timer() { this->stop(); }
+
+        explicit Timer(HWND hwnd, void* timer_id, UINT millisec_intervals, TIMERPROC callback) 
+            : _hwnd(hwnd), _timer(reinterpret_cast<UINT_PTR>(timer_id)), _interval(millisec_intervals),
+              _callback(callback), _running(false) {}
+
+        void restart() {
+            if (_timer) {
+                checked(SetTimer(_hwnd, _timer, _interval, _callback));
+                _running = true;
+            }
+        }
+        void start() { this->restart(); }
+        void stop() {
+            if (_running && _timer) {
+                checked(KillTimer(_hwnd, _timer));
+                _running = false;
+            }
+        }
+    };
+
+
     namespace HID {
         class Device;
 

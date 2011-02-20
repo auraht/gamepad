@@ -46,6 +46,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Windows.h>
 #include <SetupAPI.h>
 #include <Dbt.h>
+#include <Windowsx.h>
 
 namespace GP {
     struct Atoms {
@@ -122,10 +123,10 @@ namespace GP {
         GamepadData data = {hwnd, path, INVALID_HANDLE_VALUE};
         auto gamepad = std::make_shared<Gamepad>(&data);
         
-        if (data.device_handle != INVALID_HANDLE_VALUE) {
+        if (path == NULL || data.device_handle != INVALID_HANDLE_VALUE) {
             //## TODO: Do we need a lock here?
             _active_devices.insert(std::make_pair(data.device_handle, gamepad));
-            if (data.path != NULL)
+            if (path == NULL)
                 _simulated_gamepad = gamepad.get();
             return gamepad.get();
         } else
@@ -154,7 +155,9 @@ namespace GP {
             {
                 auto detail = reinterpret_cast<PSP_DEVICE_INTERFACE_DETAIL_DATA>(lparam);
                 GET_THIS;
-                Gamepad* gamepad = this_->_impl->insert_device_with_path(hwnd, detail->DevicePath);
+                Gamepad* gamepad = detail 
+                    ? this_->_impl->insert_device_with_path(hwnd, detail->DevicePath) 
+                    : this_->_impl->_simulated_gamepad;
                 if (gamepad != NULL)
                     this_->handle_event(gamepad, GamepadState::attached);
                 free(detail);
@@ -162,8 +165,41 @@ namespace GP {
             return TRUE;
 
         case report_arrived_message:
-            reinterpret_cast<Gamepad*>(lparam)->perform_impl_action(&wparam);
+            {
+                GamepadReport report = {GamepadReport::input_report};
+                report.input.nanoseconds_elapsed = wparam;
+                reinterpret_cast<Gamepad*>(lparam)->perform_impl_action(&report);
+            }
             return TRUE;
+
+        case WM_KEYDOWN:
+            if (lparam & 1<<30)
+                // ^ make sure we don't catch autorepeated keydowns.
+                break;
+            else {
+                // fallthrough
+            }
+
+        case WM_KEYUP:
+            GET_THIS;
+            if (this_->_impl->_simulated_gamepad) {
+                GamepadReport report = {GamepadReport::keyboard_change};
+                report.keyboard.key = wparam;
+                report.keyboard.is_pressed = (msg == WM_KEYDOWN);
+                this_->_impl->_simulated_gamepad->perform_impl_action(&report);
+            }
+            break;
+
+        case WM_MOUSEMOVE:
+            GET_THIS;
+            if (this_->_impl->_simulated_gamepad) {
+                GamepadReport report = {GamepadReport::mouse_move};
+                report.mouse.x = GET_X_LPARAM(lparam);
+                report.mouse.y = GET_Y_LPARAM(lparam);
+                this_->_impl->_simulated_gamepad->perform_impl_action(&report);
+            }
+            break;
+
 
         case WM_DEVICECHANGE:
             {
@@ -234,13 +270,14 @@ namespace GP {
             detail->cbSize = sizeof(*detail);
             checked(SetupDiGetDeviceInterfaceDetail(dev_info.handle, &device_info_data, detail, expected_size, &required_size, NULL));
 
-            PostMessage(_hwnd, device_attached_message, 0, reinterpret_cast<LPARAM>(detail));
+            checked(PostMessage(_hwnd, device_attached_message, 0, reinterpret_cast<LPARAM>(detail)));
         }
     }
 
     EXPORT Gamepad* GamepadChangedObserver::attach_simulated_gamepad() {
         if (_impl->_simulated_gamepad != NULL)
             return _impl->_simulated_gamepad;
+        checked(PostMessage(_impl->_hwnd, device_attached_message, 0, 0));
         return _impl->insert_device_with_path(_impl->_hwnd, NULL);
     }
 

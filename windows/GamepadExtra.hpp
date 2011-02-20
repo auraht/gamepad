@@ -43,7 +43,26 @@ namespace GP {
         HANDLE device_handle;
     };
 
-    
+    struct GamepadReport {
+        enum {
+            input_report,
+            mouse_move,
+            keyboard_change
+        } tag;
+        union {
+            struct {
+                unsigned nanoseconds_elapsed;
+            } input;
+            struct {
+                int x;
+                int y;
+            } mouse;
+            struct {
+                UINT key;
+                bool is_pressed;
+            } keyboard;
+        };
+    };
 }
 
 #endif

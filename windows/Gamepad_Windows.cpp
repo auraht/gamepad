@@ -48,6 +48,7 @@ namespace GP {
         {HID_USAGE_GENERIC_GAMEPAD, HID_USAGE_PAGE_GENERIC},
         {HID_USAGE_GENERIC_MULTI_AXIS_CONTROLLER, HID_USAGE_PAGE_GENERIC}
     };
+    enum { TIMESTEP = 250, FAKE_NANOSECONDS_ELAPSED = 2000000 };
 
     struct Gamepad::Impl {
         struct _AxisUsage {
@@ -57,9 +58,11 @@ namespace GP {
         };
 
         HWND _hwnd;
+        Gamepad* _gamepad;
+
+        // The following properties are for normal gamepads.
         HID::Device _device;
         HID::PreparsedData _preparsed;
-        Gamepad* _gamepad;
 
         std::vector<_AxisUsage> _valid_axes;
         std::vector<USAGE_AND_PAGE> _valid_feature_usages;
@@ -71,10 +74,13 @@ namespace GP {
         std::vector<USAGE_AND_PAGE> _last_active_usages;
         ULONG _last_active_usages_count;
 
-        
         Event _thread_exit_event, _input_received_event;
         Thread _reader_thread;
         HID::DeviceNotification _notif;
+
+        // The following properties are for simulated gamepads.
+        POINT _last_point;
+        Timer _timer;
 
     public:
         HANDLE device_handle() const { return _device.handle(); }
@@ -84,7 +90,12 @@ namespace GP {
 
         bool analyze_caps(const HIDP_CAPS& caps, Gamepad* gamepad);
 
+        void handle_input_report(unsigned nanoseconds_elapsed);
         static unsigned __stdcall reader_thread_entry(void* args);
+
+        void handle_mousemove_event(int x, int y);
+        void handle_key_event(UINT keycode, bool is_pressed);
+        static VOID CALLBACK mouse_stop_timer(HWND hwnd, UINT msg, UINT_PTR timer, DWORD timestamp);
     };
 
     Gamepad::Impl::~Impl() {
@@ -125,6 +136,13 @@ namespace GP {
 
         } else {
             // branch for simulated gamepad...
+
+            gamepad->set_bounds_for_axis(Axis::X, -3, 3);
+            gamepad->set_bounds_for_axis(Axis::Y, -3, 3);
+            gamepad->set_bounds_for_axis(Axis::Z, -1, 1);
+
+            checked(GetCursorPos(&_last_point));
+            _timer = Timer(hwnd, gamepad, TIMESTEP, &Impl::mouse_stop_timer);
         }
     }
 
@@ -158,6 +176,42 @@ namespace GP {
         }
         _endthreadex(0);
         return 0;
+    }
+
+    void Gamepad::Impl::handle_mousemove_event(int x, int y) {
+        _timer.restart();
+        int delta_x = x - _last_point.x;
+        int delta_y = y - _last_point.y;
+        _last_point.x = x;
+        _last_point.y = y;
+        _gamepad->set_axis_value(Axis::X, delta_x);
+        _gamepad->set_axis_value(Axis::Y, delta_y);
+        _gamepad->handle_axes_change(FAKE_NANOSECONDS_ELAPSED);
+    }
+
+    void Gamepad::Impl::handle_key_event(UINT keycode, bool is_pressed) {
+        Button translated_button;
+        switch (keycode) {
+            case 'W': translated_button = Button::_1; break;
+            case 'E': translated_button = Button::_2; break;
+            case 'A': translated_button = Button::_3; break;
+            case 'D': translated_button = Button::_4; break;
+            case 'Z': translated_button = Button::_5; break;
+            case 'X': translated_button = Button::_6; break;
+            case 'S': translated_button = Button::_7; break;
+            case ' ': translated_button = Button::_8; break;
+            default: return;
+        }
+        _gamepad->handle_button_change(translated_button, is_pressed);
+    }
+
+
+    VOID CALLBACK Gamepad::Impl::mouse_stop_timer(HWND hwnd, UINT msg, UINT_PTR timer, DWORD timestamp) {
+        auto gamepad = reinterpret_cast<Gamepad*>(timer);
+        gamepad->_impl->_timer.stop();
+        gamepad->set_axis_value(Axis::X, 0);
+        gamepad->set_axis_value(Axis::Y, 0);
+        gamepad->handle_axes_change(TIMESTEP * 1000000);
     }
 
     bool Gamepad::Impl::analyze_caps(const HIDP_CAPS& caps, Gamepad* gamepad) {
@@ -224,46 +278,60 @@ namespace GP {
     }
 
 
-    void Gamepad::perform_impl_action(void* data) {
-        unsigned nanoseconds_elapsed = *static_cast<WPARAM*>(data);
-        auto impl = this->_impl;
+    void Gamepad::Impl::handle_input_report(unsigned nanoseconds_elapsed) {
+        auto active_begin = &_active_usages_buffer[0];
+        auto last_active_begin = &_last_active_usages[0];
+        ULONG active_usages_count = _buttons_count;
 
         {
-            auto active_begin = &impl->_active_usages_buffer[0];
-            auto last_active_begin = &impl->_last_active_usages[0];
-            ULONG active_usages_count = impl->_buttons_count;
+            struct ContinueReadOnExit {
+                Event& read_event;
+                ContinueReadOnExit(Event& ev) : read_event(ev) {}
+                ~ContinueReadOnExit() { read_event.set(); }
+            } continue_read_on_exit (_input_received_event);
 
-            {
-                struct ContinueReadOnExit {
-                    Event& read_event;
-                    ContinueReadOnExit(Event& ev) : read_event(ev) {}
-                    ~ContinueReadOnExit() { read_event.set(); }
-                } continue_read_on_exit (impl->_input_received_event);
+            PCHAR report = &_input_report_buffer[0];
 
-                PCHAR report = &impl->_input_report_buffer[0];
+            std::for_each(_valid_axes.cbegin(), _valid_axes.cend(), [this, report](Impl::_AxisUsage axis_usage) {
+                auto result = _preparsed.usage_value(HidP_Input, report, _input_report_size, axis_usage.usage_page, axis_usage.usage);
+                _gamepad->set_axis_value(axis_usage.axis, result);
+            });
 
-                std::for_each(impl->_valid_axes.cbegin(), impl->_valid_axes.cend(), [report, impl, this](Impl::_AxisUsage axis_usage) {
-                    auto result = impl->_preparsed.usage_value(HidP_Input, report, impl->_input_report_size, axis_usage.usage_page, axis_usage.usage);
-                    this->set_axis_value(axis_usage.axis, result);
-                });
+            _preparsed.get_active_usages(HidP_Input, report, _input_report_size, active_begin, &active_usages_count);
+        }
 
-                impl->_preparsed.get_active_usages(HidP_Input, report, impl->_input_report_size, active_begin, &active_usages_count);
+        _gamepad->handle_axes_change(nanoseconds_elapsed);
+
+        std::sort(active_begin, active_begin + active_usages_count);
+        for_each_diff(active_begin, active_begin + active_usages_count, last_active_begin, last_active_begin + _last_active_usages_count,
+            [this](USAGE_AND_PAGE active_usage) {
+                _gamepad->handle_button_change(button_from_usage(active_usage.UsagePage, active_usage.Usage), true);
+            },
+            [this](USAGE_AND_PAGE inactive_usage) {
+                _gamepad->handle_button_change(button_from_usage(inactive_usage.UsagePage, inactive_usage.Usage), false);
             }
+        );
 
-            this->handle_axes_change(nanoseconds_elapsed);
+        _last_active_usages_count = active_usages_count;
+        _last_active_usages.swap(_active_usages_buffer);
+    }
 
-            std::sort(active_begin, active_begin + active_usages_count);
-            for_each_diff(active_begin, active_begin + active_usages_count, last_active_begin, last_active_begin + impl->_last_active_usages_count,
-                [this](USAGE_AND_PAGE active_usage) {
-                    this->handle_button_change(button_from_usage(active_usage.UsagePage, active_usage.Usage), true);
-                },
-                [this](USAGE_AND_PAGE inactive_usage) {
-                    this->handle_button_change(button_from_usage(inactive_usage.UsagePage, inactive_usage.Usage), false);
-                }
-            );
-            
-            impl->_last_active_usages_count = active_usages_count;
-            impl->_last_active_usages.swap(impl->_active_usages_buffer);
+    void Gamepad::perform_impl_action(void* data) {
+        auto report = static_cast<GamepadReport*>(data);
+        auto impl = this->_impl;
+
+        switch (report->tag) {
+        case GamepadReport::input_report:
+            impl->handle_input_report(report->input.nanoseconds_elapsed);
+            break;
+        case GamepadReport::mouse_move:
+            impl->handle_mousemove_event(report->mouse.x, report->mouse.y);
+            break;
+        case GamepadReport::keyboard_change:
+            impl->handle_key_event(report->keyboard.key, report->keyboard.is_pressed);
+            break;
+        default:
+            break;
         }
     }
 

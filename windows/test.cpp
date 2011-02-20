@@ -147,6 +147,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     UpdateWindow(hwnd);
 
     GP::GamepadChangedObserver observer (NULL, gamepad_state_changed, hwnd);
+    observer.attach_simulated_gamepad();
 
     MSG message;
     while (GetMessage(&message, NULL, 0, 0)) {
