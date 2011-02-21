@@ -164,7 +164,7 @@ namespace GP {
         
         //## END WARNING
         
-        void associate(void* object, void (*deleter)(void*) = NULL);
+        EXPORT void associate(void* object, void (*deleter)(void*) = NULL);
         void* associated_object() const { return _associated_object.get(); }
     };
 }

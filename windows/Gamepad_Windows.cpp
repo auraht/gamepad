@@ -48,7 +48,7 @@ namespace GP {
         {HID_USAGE_GENERIC_GAMEPAD, HID_USAGE_PAGE_GENERIC},
         {HID_USAGE_GENERIC_MULTI_AXIS_CONTROLLER, HID_USAGE_PAGE_GENERIC}
     };
-    enum { TIMESTEP = 250, FAKE_NANOSECONDS_ELAPSED = 2000000 };
+    enum { TIMESTEP = 250, FAKE_NANOSECONDS_ELAPSED = 20000000 };
 
     struct Gamepad::Impl {
         struct _AxisUsage {
@@ -137,8 +137,8 @@ namespace GP {
         } else {
             // branch for simulated gamepad...
 
-            gamepad->set_bounds_for_axis(Axis::X, -3, 3);
-            gamepad->set_bounds_for_axis(Axis::Y, -3, 3);
+            gamepad->set_bounds_for_axis(Axis::X, -5, 5);
+            gamepad->set_bounds_for_axis(Axis::Y, -5, 5);
             gamepad->set_bounds_for_axis(Axis::Z, -1, 1);
 
             checked(GetCursorPos(&_last_point));
