@@ -81,7 +81,7 @@ namespace GP {
     public:
         HID_PERFORM(HID_DECLARE);
         
-        HIDDLL() : _lib("hid.dll") {
+        HIDDLL() : _lib(TEXT("hid.dll")) {
             HID_PERFORM(HID_DEFINE);
         }
 

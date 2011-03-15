@@ -77,12 +77,13 @@ namespace GP {
         }
         
         if (_axis_group_changed_callback || _axis_group_state_changed_callback) {
-            Axis axis_groups[][4] = {
-                {Axis::X, Axis::Y, Axis::Z, Axis::invalid},
-                {Axis::Rx, Axis::Ry, Axis::Rz, Axis::invalid},
-                {Axis::Vx, Axis::Vy, Axis::Vz, Axis::invalid},
-                {Axis::Vbrx, Axis::Vbry, Axis::Vbrz, Axis::invalid},
-                {Axis::X, Axis::Y, Axis::invalid, Axis::invalid}
+            Axis axis_groups[][7] = {
+                {Axis::X, Axis::Y, Axis::Z, Axis::invalid, Axis::invalid, Axis::invalid, Axis::invalid},
+                {Axis::Rx, Axis::Ry, Axis::Rz, Axis::invalid, Axis::invalid, Axis::invalid, Axis::invalid},
+                {Axis::Vx, Axis::Vy, Axis::Vz, Axis::invalid, Axis::invalid, Axis::invalid, Axis::invalid},
+                {Axis::Vbrx, Axis::Vbry, Axis::Vbrz, Axis::invalid, Axis::invalid, Axis::invalid, Axis::invalid},
+                {Axis::X, Axis::Y, Axis::invalid, Axis::invalid, Axis::invalid, Axis::invalid, Axis::invalid},
+                {Axis::X, Axis::Y, Axis::Z, Axis::Rx, Axis::Ry, Axis::Rz, Axis::invalid}
             };
             
             for (int i = 0; i < static_cast<int>(AxisGroup::group_count); ++ i) {

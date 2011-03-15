@@ -54,6 +54,7 @@ namespace GP {
         vector,                 // Vx, Vy, Vz
         body_relative_vector,   // Vbrx, Vbry, Vbrz
         translation_2d,         // X, Y
+        rigid_motion,           // X, Y, Z, Rx, Ry, Rz
         group_count
     };
     
