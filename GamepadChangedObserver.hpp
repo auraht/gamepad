@@ -58,12 +58,12 @@ namespace GP {
     private:
         struct Impl;
         struct ImplDeleter {
-            EXPORT void operator() (Impl* impl) const;
+            GP_EXPORT void operator() (Impl* impl) const;
         };
         
         std::unique_ptr<Impl, ImplDeleter> _impl;
         
-        EXPORT void create_impl(void* eventloop);
+        GP_EXPORT void create_impl(void* eventloop);
         
         void* _self;
         Callback _callback;
@@ -73,7 +73,7 @@ namespace GP {
         private:
             struct Impl;
             struct ImplDeleter {
-                EXPORT void operator() (Impl* impl) const;
+                GP_EXPORT void operator() (Impl* impl) const;
             };
 
             std::unique_ptr<Impl, ImplDeleter> _impl;
@@ -82,21 +82,21 @@ namespace GP {
         public:
             typedef std::forward_iterator_tag iterator_tag;
         
-            EXPORT const_iterator& operator++();
-            EXPORT const_iterator operator++(int);
+            GP_EXPORT const_iterator& operator++();
+            GP_EXPORT const_iterator operator++(int);
             
-            EXPORT Gamepad& operator*() const;
-            EXPORT Gamepad& operator->() const { return **this; }
+            GP_EXPORT Gamepad& operator*() const;
+            GP_EXPORT Gamepad& operator->() const { return **this; }
             
             const_iterator() : _impl(static_cast<Impl*>(NULL)) {}
             
-            EXPORT const_iterator(const const_iterator& other);
-            EXPORT const_iterator(const_iterator&& other);
-            EXPORT const_iterator& operator=(const const_iterator& other);
-            EXPORT const_iterator& operator=(const_iterator&& other);
+            GP_EXPORT const_iterator(const const_iterator& other);
+            GP_EXPORT const_iterator(const_iterator&& other);
+            GP_EXPORT const_iterator& operator=(const const_iterator& other);
+            GP_EXPORT const_iterator& operator=(const_iterator&& other);
             
-            EXPORT bool operator==(const const_iterator& other) const;
-            EXPORT bool operator!=(const const_iterator& other) const;
+            GP_EXPORT bool operator==(const const_iterator& other) const;
+            GP_EXPORT bool operator!=(const const_iterator& other) const;
             
             friend class GamepadChangedObserver;
         };
@@ -122,15 +122,15 @@ namespace GP {
         GamepadChangedObserver& operator=(GamepadChangedObserver&&);
 
     public:
-        EXPORT const_iterator cbegin() const;
-        EXPORT const_iterator cend() const;
+        GP_EXPORT const_iterator cbegin() const;
+        GP_EXPORT const_iterator cend() const;
         iterator begin() const { return this->cbegin(); }
         iterator end() const { return this->cend(); }
         
         
         /// Attach a simulated gamepad and return the attached one.
         /// returns NULL if this is not supported.
-        EXPORT Gamepad* attach_simulated_gamepad();
+        GP_EXPORT Gamepad* attach_simulated_gamepad();
     };
     
 }

@@ -52,7 +52,7 @@ namespace GP {
     }
     
     
-    EXPORT void Gamepad::associate(void* object, void (*deleter)(void*)) {
+    GP_EXPORT void Gamepad::associate(void* object, void (*deleter)(void*)) {
         if (deleter == NULL)
             deleter = no_op;
         _associated_object = std::unique_ptr<void, void(*)(void*)>(object, deleter);

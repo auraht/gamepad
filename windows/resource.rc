@@ -1,7 +1,7 @@
 #include <winver.h>
 
-#define VER_FILEVERSION         0,6,0,0
-#define VER_FILEVERSION_STR     "0.6.0"
+#define VER_FILEVERSION         0,6,1,0
+#define VER_FILEVERSION_STR     "0.6.1"
 #define VER_PRODUCTVERSION      VER_FILEVERSION
 #define VER_PRODUCTVERSION_STR  VER_FILEVERSION_STR
 
@@ -12,7 +12,7 @@ VS_VERSION_INFO VERSIONINFO
     FILEVERSION     VER_FILEVERSION
     PRODUCTVERSION  VER_PRODUCTVERSION
     FILEOS          VOS_NT
-    FILETYPE        VFT_DLL
+    FILETYPE        VFT_STATIC_LIB
     FILESUBTYPE     VFT2_UNKNOWN {
 
         BLOCK "StringFileInfo" {
@@ -20,7 +20,7 @@ VS_VERSION_INFO VERSIONINFO
                 VALUE "CompanyName",    "aura Human Technology Ltd."
                 VALUE "FileDescription","A cross-platform gamepad library to supplement HIDDriver"
                 VALUE "LegalCopyright", "Copyright (c) 2011  aura Human Technology Ltd.  All rights reserved."
-                VALUE "ProductName",    "Gamepad.dll"
+                VALUE "ProductName",    "Gamepad.lib"
                 VALUE "ProductVersion", VER_PRODUCTVERSION_STR
                 VALUE "FileVersion",    VER_FILEVERSION_STR
             }

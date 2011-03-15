@@ -79,11 +79,11 @@ namespace GP {
         Gamepad* insert_device_with_path(HWND hwnd, LPCTSTR path);
     };
 
-    EXPORT void GamepadChangedObserver::ImplDeleter::operator() (Impl* impl) const {
+    GP_EXPORT void GamepadChangedObserver::ImplDeleter::operator() (Impl* impl) const {
         delete impl;
     }
 
-    EXPORT void GamepadChangedObserver::create_impl(void* eventloop) {
+    GP_EXPORT void GamepadChangedObserver::create_impl(void* eventloop) {
         auto hwnd = static_cast<HWND>(eventloop);
         _impl = std::unique_ptr<Impl, ImplDeleter>(new Impl(hwnd, this));
     }
@@ -273,7 +273,7 @@ namespace GP {
         }
     }
 
-    EXPORT Gamepad* GamepadChangedObserver::attach_simulated_gamepad() {
+    GP_EXPORT Gamepad* GamepadChangedObserver::attach_simulated_gamepad() {
         if (_impl->_simulated_gamepad != NULL)
             return _impl->_simulated_gamepad;
         checked(PostMessage(_impl->_hwnd, device_attached_message, 0, 0));
@@ -289,57 +289,57 @@ namespace GP {
             : cit(it) {}
     };
 
-    EXPORT void GamepadChangedObserver::const_iterator::ImplDeleter::operator() (Impl* impl) const {
+    GP_EXPORT void GamepadChangedObserver::const_iterator::ImplDeleter::operator() (Impl* impl) const {
         delete impl;
     }
     
-    EXPORT auto GamepadChangedObserver::cbegin() const -> const_iterator {
+    GP_EXPORT auto GamepadChangedObserver::cbegin() const -> const_iterator {
         return const_iterator(new const_iterator::Impl(_impl->_active_devices.cbegin()));
     }
     
-    EXPORT auto GamepadChangedObserver::cend() const -> const_iterator {
+    GP_EXPORT auto GamepadChangedObserver::cend() const -> const_iterator {
         return const_iterator(new const_iterator::Impl(_impl->_active_devices.cend()));
     }
 
-    EXPORT auto GamepadChangedObserver::const_iterator::operator++() -> const_iterator& {
+    GP_EXPORT auto GamepadChangedObserver::const_iterator::operator++() -> const_iterator& {
         ++ _impl->cit;
         return *this;
     }
     
-    EXPORT auto GamepadChangedObserver::const_iterator::operator++(int) -> const_iterator {
+    GP_EXPORT auto GamepadChangedObserver::const_iterator::operator++(int) -> const_iterator {
         auto newImpl = new Impl(_impl->cit);
         ++ _impl->cit;
         return const_iterator(newImpl);
     }
     
-    EXPORT Gamepad& GamepadChangedObserver::const_iterator::operator*() const {
+    GP_EXPORT Gamepad& GamepadChangedObserver::const_iterator::operator*() const {
         return *(_impl->cit->second);
     }
     
-    EXPORT GamepadChangedObserver::const_iterator::const_iterator(const const_iterator& other)
+    GP_EXPORT GamepadChangedObserver::const_iterator::const_iterator(const const_iterator& other)
         : _impl(new Impl(other._impl->cit)) {}
     
-    EXPORT GamepadChangedObserver::const_iterator::const_iterator(const_iterator&& other)
+    GP_EXPORT GamepadChangedObserver::const_iterator::const_iterator(const_iterator&& other)
         : _impl(std::move(other._impl)) {}
 
-    EXPORT auto GamepadChangedObserver::const_iterator::operator=(const const_iterator& other) -> const_iterator& {
+    GP_EXPORT auto GamepadChangedObserver::const_iterator::operator=(const const_iterator& other) -> const_iterator& {
         if (this != &other) {
             _impl = std::unique_ptr<Impl, ImplDeleter>(new Impl(other._impl->cit));
         }
         return *this;
     }
-    EXPORT auto GamepadChangedObserver::const_iterator::operator=(const_iterator&& other) -> const_iterator& {    
+    GP_EXPORT auto GamepadChangedObserver::const_iterator::operator=(const_iterator&& other) -> const_iterator& {    
         if (this != &other) {
             _impl = std::move(other._impl);
         }
         return *this;
     }
     
-    EXPORT bool GamepadChangedObserver::const_iterator::operator==(const const_iterator& other) const {
+    GP_EXPORT bool GamepadChangedObserver::const_iterator::operator==(const const_iterator& other) const {
         return _impl->cit == other._impl->cit;
     }
     
-    EXPORT bool GamepadChangedObserver::const_iterator::operator!=(const const_iterator& other) const {
+    GP_EXPORT bool GamepadChangedObserver::const_iterator::operator!=(const const_iterator& other) const {
         return _impl->cit != other._impl->cit;
     }
 }

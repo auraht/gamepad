@@ -33,6 +33,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef COMPATIBILITY_HPP_tgk9yntqol1pp66r
 #define COMPATIBILITY_HPP_tgk9yntqol1pp66r
 
+/*
 #if _WIN32
 #ifdef _WINDLL
 #define EXPORT __declspec(dllexport)
@@ -42,6 +43,8 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #else
 #define EXPORT
 #endif
+*/
+#define GP_EXPORT
 
 #if __GNUC__
 #define ENUM_CLASS enum class
