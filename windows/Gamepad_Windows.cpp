@@ -294,7 +294,7 @@ namespace GP {
             PCHAR report = &_input_report_buffer[0];
 
             std::for_each(_valid_axes.cbegin(), _valid_axes.cend(), [this, report](Impl::_AxisUsage axis_usage) {
-                auto result = _preparsed.usage_value(HidP_Input, report, _input_report_size, axis_usage.usage_page, axis_usage.usage);
+                auto result = _preparsed.scaled_usage_value(HidP_Input, report, _input_report_size, axis_usage.usage_page, axis_usage.usage);
                 _gamepad->set_axis_value(axis_usage.axis, result);
             });
 

@@ -271,6 +271,7 @@ namespace GP {
             void get_value_caps(HIDP_REPORT_TYPE report_type, ULONG count, std::vector<HIDP_VALUE_CAPS>& buffer) const;
             ULONG max_usage_list_length(HIDP_REPORT_TYPE report_type) const;
             ULONG usage_value(HIDP_REPORT_TYPE report_type, PCHAR report, ULONG report_length, USAGE usage_page, USAGE usage) const;
+            LONG scaled_usage_value(HIDP_REPORT_TYPE report_type, PCHAR report, ULONG report_long, USAGE usage_page, USAGE usage) const;
             void set_usage_value(HIDP_REPORT_TYPE report_type, PCHAR report, ULONG report_length, USAGE usage_page, USAGE usage, ULONG value) const;
             void get_active_usages(HIDP_REPORT_TYPE report_type, PCHAR report, ULONG report_length, USAGE_AND_PAGE* buffer, ULONG* count) const;
             void set_usage_activated(HIDP_REPORT_TYPE report_type, PCHAR report, ULONG report_length, USAGE usage_page, USAGE usage, long active) const;

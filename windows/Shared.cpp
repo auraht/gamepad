@@ -76,7 +76,8 @@ namespace GP {
     MACRO(HidP_UnsetUsages); \
     MACRO(HidD_SetFeature); \
     MACRO(HidD_GetFeature); \
-    MACRO(HidD_GetHidGuid)
+    MACRO(HidD_GetHidGuid); \
+    MACRO(HidP_GetScaledUsageValue)
 
     public:
         HID_PERFORM(HID_DECLARE);
@@ -127,6 +128,12 @@ namespace GP {
         ULONG PreparsedData::usage_value(HIDP_REPORT_TYPE report_type, PCHAR report, ULONG report_length, USAGE usage_page, USAGE usage) const {
             ULONG res = 0;
             check_status(hid.HidP_GetUsageValue(report_type, usage_page, 0, usage, &res, _preparsed, report, report_length));
+            return res;
+        }
+
+        LONG PreparsedData::scaled_usage_value(HIDP_REPORT_TYPE report_type, PCHAR report, ULONG report_length, USAGE usage_page, USAGE usage) const {
+            LONG res = 0;
+            check_status(hid.HidP_GetScaledUsageValue(report_type, usage_page, 0, usage, &res, _preparsed, report, report_length));
             return res;
         }
 
