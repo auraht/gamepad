@@ -49,19 +49,6 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Windowsx.h>
 
 namespace GP {
-    struct Atoms {
-        LPCTSTR lastWndProc;
-        LPCTSTR this_;
-        Atoms() {
-            lastWndProc = reinterpret_cast<LPCTSTR>( checked( GlobalAddAtom(TEXT("com.auraHT.gamepad.lastWndProc")) ) );
-            this_ = reinterpret_cast<LPCTSTR>( checked( GlobalAddAtom(TEXT("com.auraHT.gamepad.this_")) ) );
-        }
-        ~Atoms() {
-            GlobalDeleteAtom(reinterpret_cast<ATOM>(lastWndProc));
-            GlobalDeleteAtom(reinterpret_cast<ATOM>(this_));
-        }
-    } atoms;
-
     struct GamepadChangedObserver::Impl {
         HWND _hwnd;
         HDEVNOTIFY _notif;
@@ -71,8 +58,11 @@ namespace GP {
         Gamepad* _simulated_gamepad;
 
     public:
-        Impl(HWND hwnd, GamepadChangedObserver* this_);
+        Impl(GamepadChangedObserver* this_);
         ~Impl();
+
+        void create_invisible_listener_window(GamepadChangedObserver* this_);
+        void listen_for_hotplugged_devices();
 
         static LRESULT CALLBACK message_handler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
         void populate_existing_devices(const GUID* phid_guid);
@@ -83,40 +73,72 @@ namespace GP {
         delete impl;
     }
 
-    GP_EXPORT void GamepadChangedObserver::create_impl(void* eventloop) {
-        auto hwnd = static_cast<HWND>(eventloop);
-        _impl = std::unique_ptr<Impl, ImplDeleter>(new Impl(hwnd, this));
+    GP_EXPORT void GamepadChangedObserver::create_impl(void*) {
+        _impl = std::unique_ptr<Impl, ImplDeleter>(new Impl(this));
     }
 
-    GamepadChangedObserver::Impl::Impl(HWND hwnd, GamepadChangedObserver* this_)
-        : _hwnd(hwnd), _simulated_gamepad(NULL)
-    {
-        // listen for hot-plugged devices
+    /// Create an invisible top-level window for listening to device attachment/removal and input report events.
+    void GamepadChangedObserver::Impl::create_invisible_listener_window(GamepadChangedObserver* this_) {
+        static struct OnceOnlyClassRegistration {
+            HINSTANCE registered_hinst;
+
+            OnceOnlyClassRegistration() : registered_hinst(GetModuleHandle(NULL)) {
+                WNDCLASSEX clsdef;
+                clsdef.cbSize = sizeof(clsdef);
+                clsdef.style = 0;
+                clsdef.lpfnWndProc = GamepadChangedObserver::Impl::message_handler;
+                clsdef.cbClsExtra = 0;
+                clsdef.cbWndExtra = sizeof(GamepadChangedObserver*);
+                clsdef.hInstance = registered_hinst;
+                clsdef.hIcon = NULL;
+                clsdef.hCursor = NULL;
+                clsdef.hbrBackground = NULL;
+                clsdef.lpszMenuName = NULL;
+                clsdef.lpszClassName = TEXT("GamepadReceiverWindow_gdwxfsqd7ocl");
+                clsdef.hIconSm = NULL;
+
+                RegisterClassEx(&clsdef);
+            }
+        } once;
+
+        _hwnd = CreateWindowEx(
+            0,  // dwExStyle
+            TEXT("GamepadReceiverWindow_gdwxfsqd7ocl"), // class name
+            TEXT("Gamepad receiver window - Do not close"), // window name
+            0,  // dwStyle
+            0, 0, 0, 0, // x, y, width, height
+            NULL,   // parent
+            NULL,   // menu
+            once.registered_hinst,  // hInst
+            NULL);  // lpVoid
+
+        SetWindowLongPtr(_hwnd, 0, reinterpret_cast<LONG_PTR>(this_));
+    }
+
+    
+    GamepadChangedObserver::Impl::Impl(GamepadChangedObserver* this_) : _simulated_gamepad(NULL) {
+        this->create_invisible_listener_window(this_);
+        
+        // listen for hotplugged devices
         DEV_BROADCAST_DEVICEINTERFACE filter;
         filter.dbcc_size = sizeof(filter);
         filter.dbcc_devicetype = DBT_DEVTYP_DEVICEINTERFACE;
         filter.dbcc_reserved = 0;
         filter.dbcc_classguid = HID::get_hid_guid();
-        _notif = checked( RegisterDeviceNotification(hwnd, &filter, DEVICE_NOTIFY_WINDOW_HANDLE) );
+        _notif = checked( RegisterDeviceNotification(_hwnd, &filter, DEVICE_NOTIFY_WINDOW_HANDLE) );
 
         // find all already plugged-in devices.
         this->populate_existing_devices(&filter.dbcc_classguid);
-
-        // Hook to the WndProc of the window, so that we can handle the device changed events.
-        auto orig_wndproc = replace_wndproc(hwnd, Impl::message_handler);
-        checked( SetProp(hwnd, atoms.lastWndProc, orig_wndproc) );
-        checked( SetProp(hwnd, atoms.this_, this_) );
     }
 
     GamepadChangedObserver::Impl::~Impl() {
-        if (_hwnd) {
-            auto orig_wndproc = static_cast<WNDPROC>( RemoveProp(_hwnd, atoms.lastWndProc) );
-            SetWindowLongPtr(_hwnd, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(orig_wndproc));
-            // ^ we call SetWindowLongPtr instead of replace_wndproc here because we don't want to throw in a destructor.
-            RemoveProp(_hwnd, atoms.this_);
-        }
-        if (_notif)
+        _active_devices.clear();
+        if (_notif) {
             UnregisterDeviceNotification(_notif);
+        }
+        if (_hwnd) {
+            checked(DestroyWindow(_hwnd));
+        }
     }
 
     Gamepad* GamepadChangedObserver::Impl::insert_device_with_path(HWND hwnd, LPCTSTR path) {
@@ -134,26 +156,15 @@ namespace GP {
     }
 
     LRESULT CALLBACK GamepadChangedObserver::Impl::message_handler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
-        GamepadChangedObserver* this_;
-        WNDPROC lastWndProc = NULL;
-
-#define GET_THIS this_ = static_cast<GamepadChangedObserver*>( GetProp(hwnd, atoms.this_) )
+        auto this_ = reinterpret_cast<GamepadChangedObserver*>( GetWindowLongPtr(hwnd, 0) );
 
         switch (msg) {
         default:
             break;
 
-        case WM_NCDESTROY:
-            lastWndProc = static_cast<WNDPROC>( RemoveProp(hwnd, atoms.lastWndProc) );
-            this_ = static_cast<GamepadChangedObserver*>( RemoveProp(hwnd, atoms.this_) );
-            this_->_impl->_hwnd = NULL;
-            this_->_impl.reset();
-            break;
-
         case device_attached_message: 
             {
                 auto detail = reinterpret_cast<PSP_DEVICE_INTERFACE_DETAIL_DATA>(lparam);
-                GET_THIS;
                 Gamepad* gamepad = detail 
                     ? this_->_impl->insert_device_with_path(hwnd, detail->DevicePath) 
                     : this_->_impl->_simulated_gamepad;
@@ -171,35 +182,6 @@ namespace GP {
             }
             return TRUE;
 
-        case WM_KEYDOWN:
-            if (lparam & 1<<30)
-                // ^ make sure we don't catch autorepeated keydowns.
-                break;
-            else {
-                // fallthrough
-            }
-
-        case WM_KEYUP:
-            GET_THIS;
-            if (this_->_impl->_simulated_gamepad) {
-                GamepadReport report = {GamepadReport::keyboard_change};
-                report.keyboard.key = wparam;
-                report.keyboard.is_pressed = (msg == WM_KEYDOWN);
-                this_->_impl->_simulated_gamepad->perform_impl_action(&report);
-            }
-            break;
-
-        case WM_MOUSEMOVE:
-            GET_THIS;
-            if (this_->_impl->_simulated_gamepad) {
-                GamepadReport report = {GamepadReport::mouse_move};
-                report.mouse.x = GET_X_LPARAM(lparam);
-                report.mouse.y = GET_Y_LPARAM(lparam);
-                this_->_impl->_simulated_gamepad->perform_impl_action(&report);
-            }
-            break;
-
-
         case WM_DEVICECHANGE:
             {
                 auto event_data = reinterpret_cast<PDEV_BROADCAST_HDR>(lparam);
@@ -210,7 +192,6 @@ namespace GP {
                 case DBT_DEVICEARRIVAL:
                     // plugged in.
                     if (event_data->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
-                        GET_THIS;
                         auto dev_path = reinterpret_cast<PDEV_BROADCAST_DEVICEINTERFACE>(event_data)->dbcc_name;
                         Gamepad* gamepad = this_->_impl->insert_device_with_path(hwnd, dev_path);
                         this_->handle_event(*gamepad, GamepadState::attached);
@@ -222,7 +203,6 @@ namespace GP {
                     if (event_data->dbch_devicetype == DBT_DEVTYP_HANDLE) {
                         HANDLE hdevice = reinterpret_cast<PDEV_BROADCAST_HANDLE>(event_data)->dbch_handle;
                         //## TODO: Do we need a lock here?
-                        GET_THIS;
                         auto it = this_->_impl->_active_devices.find(hdevice);
                         this_->handle_event(*(it->second), GamepadState::detaching);
                         this_->_impl->_active_devices.erase(it);
@@ -233,9 +213,7 @@ namespace GP {
             }
         }
 
-        if (!lastWndProc)
-            lastWndProc = static_cast<WNDPROC>( checked( GetProp(hwnd, atoms.lastWndProc) ) );
-        return CallWindowProc(lastWndProc, hwnd, msg, wparam, lparam);
+        return DefWindowProc(hwnd, msg, wparam, lparam);
     }
 
     void GamepadChangedObserver::Impl::populate_existing_devices(const GUID* phid_guid) {
@@ -274,10 +252,7 @@ namespace GP {
     }
 
     GP_EXPORT Gamepad* GamepadChangedObserver::attach_simulated_gamepad() {
-        if (_impl->_simulated_gamepad != NULL)
-            return _impl->_simulated_gamepad;
-        checked(PostMessage(_impl->_hwnd, device_attached_message, 0, 0));
-        return _impl->insert_device_with_path(_impl->_hwnd, NULL);
+        return NULL;
     }
 
 

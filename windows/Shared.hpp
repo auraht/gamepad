@@ -139,11 +139,13 @@ namespace GP {
 
         explicit Event(bool manual_reset, bool initial_state)
             : _event(checked(CreateEvent(NULL, manual_reset, initial_state, NULL))) {}
-        ~Event() { if (_event != NULL) CloseHandle(_event); }
+        ~Event() { if (_event != NULL) { CloseHandle(_event); _event = NULL; } }
 
         void set() { if (_event != NULL) checked(SetEvent(_event)); }
+        void set_unchecked() { if (_event != NULL) SetEvent(_event); }
         void reset() { if (_event != NULL) checked(ResetEvent(_event)); }
         bool wait(DWORD timeout = INFINITE) { return checked(WaitForSingleObject(_event, timeout), WAIT_FAILED) == WAIT_OBJECT_0; }
+        bool wait_unchecked(DWORD timeout = INFINITE) { return WaitForSingleObject(_event, timeout) == WAIT_OBJECT_0; }
         bool get() { return this->wait(0); }
 
         HANDLE handle() const { return _event; }
@@ -163,7 +165,7 @@ namespace GP {
 
         explicit Thread(unsigned(__stdcall *entry)(void*), void* args = NULL)
             : _thread(reinterpret_cast<HANDLE>(checked(_beginthreadex(NULL, 0, entry, args, 0, NULL)))) {}
-        ~Thread() { if (_thread != NULL) CloseHandle(_thread); }
+        ~Thread() { if (_thread != NULL) { CancelSynchronousIo(_thread); CloseHandle(_thread); } }
     };
 
 
@@ -286,6 +288,7 @@ namespace GP {
             explicit Device(LPCTSTR path) : FileHandle(path) {}
 
             bool read(LPVOID buffer, DWORD length);
+            bool read_unchecked(LPVOID buffer, DWORD length);
             void set_feature(PVOID content, ULONG length);
             bool get_feature(PVOID buffer, ULONG length);
         };

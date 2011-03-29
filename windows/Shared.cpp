@@ -133,8 +133,14 @@ namespace GP {
 
         LONG PreparsedData::scaled_usage_value(HIDP_REPORT_TYPE report_type, PCHAR report, ULONG report_length, USAGE usage_page, USAGE usage) const {
             LONG res = 0;
-            check_status(hid.HidP_GetScaledUsageValue(report_type, usage_page, 0, usage, &res, _preparsed, report, report_length));
-            return res;
+            NTSTATUS status = hid.HidP_GetScaledUsageValue(report_type, usage_page, 0, usage, &res, _preparsed, report, report_length);
+            if (status == HIDP_STATUS_SUCCESS)
+                return res;
+            else if (status == HIDP_STATUS_VALUE_OUT_OF_RANGE) {  //## BUG: the current situation when we plug in the device. ideally we should be able avoid this... 
+                OutputDebugString(TEXT("HIDP_STATUS_VALUE_OUT_OF_RANGE"));
+                return 0L;
+            } else
+                throw HIDErrorException(status);
         }
 
         void PreparsedData::set_usage_value(HIDP_REPORT_TYPE report_type, PCHAR report, ULONG report_length, USAGE usage_page, USAGE usage, ULONG value) const {
@@ -156,6 +162,16 @@ namespace GP {
                 return false;
             DWORD actual_length = 0;
             if (checked(ReadFile(_handle, buffer, length, &actual_length, NULL), FALSE, ERROR_DEVICE_NOT_CONNECTED))
+                return length == actual_length;
+            else
+                return false;
+        }
+
+        bool Device::read_unchecked(LPVOID buffer, DWORD length) {
+            if (_handle == INVALID_HANDLE_VALUE)
+                return false;
+            DWORD actual_length = 0;
+            if (ReadFile(_handle, buffer, length, &actual_length, NULL))
                 return length == actual_length;
             else
                 return false;

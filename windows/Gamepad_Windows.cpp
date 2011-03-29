@@ -74,13 +74,9 @@ namespace GP {
         std::vector<USAGE_AND_PAGE> _last_active_usages;
         ULONG _last_active_usages_count;
 
-        Event _thread_exit_event, _input_received_event;
+        Event _input_received_event, _valid_window_event;
         Thread _reader_thread;
         HID::DeviceNotification _notif;
-
-        // The following properties are for simulated gamepads.
-        POINT _last_point;
-        Timer _timer;
 
     public:
         HANDLE device_handle() const { return _device.handle(); }
@@ -99,11 +95,11 @@ namespace GP {
     };
 
     Gamepad::Impl::~Impl() {
-        _input_received_event.set();
-        _thread_exit_event.set();
+        _valid_window_event.reset();
+        _valid_window_event.wait(10);
     }
 
-    Gamepad::Impl::Impl(HWND hwnd, LPCTSTR path, Gamepad* gamepad) : _hwnd(hwnd), _gamepad(gamepad) {
+    Gamepad::Impl::Impl(HWND hwnd, LPCTSTR path, Gamepad* gamepad) : _hwnd(hwnd), _gamepad(gamepad), _input_received_event(false, true), _valid_window_event(true, true) {
         if (path != NULL) {
             // branch for actual gamepad...
 
@@ -127,22 +123,10 @@ namespace GP {
             // 6. Start reader thread.
             //## TODO: Is using thread a good strategy?
             //         (Let's hope there won't be dozens of input devices connected to the same system.)
-            _thread_exit_event = Event(false, false);
-            _input_received_event = Event(true, true);
             _reader_thread = Thread(&Gamepad::Impl::reader_thread_entry, this);
 
             // 7. register broadcast (WM_DEVICECHANGED) to allow proper handling of unplugging device.
             _notif = HID::DeviceNotification(hwnd, _device);
-
-        } else {
-            // branch for simulated gamepad...
-
-            gamepad->set_bounds_for_axis(Axis::X, -5, 5);
-            gamepad->set_bounds_for_axis(Axis::Y, -5, 5);
-            gamepad->set_bounds_for_axis(Axis::Z, -1, 1);
-
-            checked(GetCursorPos(&_last_point));
-            _timer = Timer(hwnd, gamepad, TIMESTEP, &Impl::mouse_stop_timer);
         }
     }
 
@@ -158,8 +142,8 @@ namespace GP {
         checked(QueryPerformanceCounter(&last_counter));
         //## TODO: Fallback to GetTickCount if QueryPerformanceCounter is not supported.
 
-        while (!impl->_thread_exit_event.get()) {
-            if (!impl->_device.read(input_buf, input_size))
+        while (impl->_valid_window_event.wait(0)) {
+            if (!impl->_device.read_unchecked(input_buf, input_size))
                 break;
 
             LARGE_INTEGER counter;
@@ -169,49 +153,14 @@ namespace GP {
             auto nanosec = delta_c * 1000000000 / frequency.QuadPart;
             unsigned nanoseconds_elapsed = static_cast<unsigned>(nanosec);
 
-            impl->_input_received_event.reset();
-            //## TODO: Probably there's a more efficient method than PostMessage()?
-            PostMessage(impl->_hwnd, report_arrived_message, nanoseconds_elapsed, reinterpret_cast<LPARAM>(impl->_gamepad));
-            impl->_input_received_event.wait();
+            if (impl->_input_received_event.wait_unchecked(1000)) {
+                impl->_input_received_event.reset();
+                PostMessage(impl->_hwnd, report_arrived_message, nanoseconds_elapsed, reinterpret_cast<LPARAM>(impl->_gamepad));
+            }
         }
+        impl->_valid_window_event.set_unchecked();
         _endthreadex(0);
         return 0;
-    }
-
-    void Gamepad::Impl::handle_mousemove_event(int x, int y) {
-        _timer.restart();
-        int delta_x = x - _last_point.x;
-        int delta_y = y - _last_point.y;
-        _last_point.x = x;
-        _last_point.y = y;
-        _gamepad->set_axis_value(Axis::X, delta_x);
-        _gamepad->set_axis_value(Axis::Y, delta_y);
-        _gamepad->handle_axes_change(FAKE_NANOSECONDS_ELAPSED);
-    }
-
-    void Gamepad::Impl::handle_key_event(UINT keycode, bool is_pressed) {
-        Button translated_button;
-        switch (keycode) {
-            case 'W': translated_button = Button::_1; break;
-            case 'E': translated_button = Button::_2; break;
-            case 'A': translated_button = Button::_3; break;
-            case 'D': translated_button = Button::_4; break;
-            case 'Z': translated_button = Button::_5; break;
-            case 'X': translated_button = Button::_6; break;
-            case 'S': translated_button = Button::_7; break;
-            case ' ': translated_button = Button::_8; break;
-            default: return;
-        }
-        _gamepad->handle_button_change(translated_button, is_pressed);
-    }
-
-
-    VOID CALLBACK Gamepad::Impl::mouse_stop_timer(HWND hwnd, UINT msg, UINT_PTR timer, DWORD timestamp) {
-        auto gamepad = reinterpret_cast<Gamepad*>(timer);
-        gamepad->_impl->_timer.stop();
-        gamepad->set_axis_value(Axis::X, 0);
-        gamepad->set_axis_value(Axis::Y, 0);
-        gamepad->handle_axes_change(TIMESTEP * 1000000);
     }
 
     bool Gamepad::Impl::analyze_caps(const HIDP_CAPS& caps, Gamepad* gamepad) {
@@ -323,12 +272,6 @@ namespace GP {
         switch (report->tag) {
         case GamepadReport::input_report:
             this->_impl->handle_input_report(report->input.nanoseconds_elapsed);
-            break;
-        case GamepadReport::mouse_move:
-            this->_impl->handle_mousemove_event(report->mouse.x, report->mouse.y);
-            break;
-        case GamepadReport::keyboard_change:
-            this->_impl->handle_key_event(report->keyboard.key, report->keyboard.is_pressed);
             break;
         default:
             break;
