@@ -194,7 +194,8 @@ namespace GP {
                     if (event_data->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
                         auto dev_path = reinterpret_cast<PDEV_BROADCAST_DEVICEINTERFACE>(event_data)->dbcc_name;
                         Gamepad* gamepad = this_->_impl->insert_device_with_path(hwnd, dev_path);
-                        this_->handle_event(*gamepad, GamepadState::attached);
+                        if (gamepad != NULL)
+                            this_->handle_event(*gamepad, GamepadState::attached);
                     }
                     break;
 
