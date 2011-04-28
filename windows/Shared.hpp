@@ -139,13 +139,18 @@ namespace GP {
 
         explicit Event(bool manual_reset, bool initial_state)
             : _event(checked(CreateEvent(NULL, manual_reset, initial_state, NULL))) {}
-        ~Event() { if (_event != NULL) { CloseHandle(_event); _event = NULL; } }
+        ~Event() {
+            if (_event != NULL) {
+                CloseHandle(_event);
+                _event = NULL; 
+            }
+        }
 
         void set() { if (_event != NULL) checked(SetEvent(_event)); }
         void set_unchecked() { if (_event != NULL) SetEvent(_event); }
         void reset() { if (_event != NULL) checked(ResetEvent(_event)); }
-        bool wait(DWORD timeout = INFINITE) { return checked(WaitForSingleObject(_event, timeout), WAIT_FAILED) == WAIT_OBJECT_0; }
-        bool wait_unchecked(DWORD timeout = INFINITE) { return WaitForSingleObject(_event, timeout) == WAIT_OBJECT_0; }
+        bool wait(DWORD timeout = INFINITE) { return _event == NULL ? false : checked(WaitForSingleObject(_event, timeout), WAIT_FAILED) == WAIT_OBJECT_0; }
+        bool wait_unchecked(DWORD timeout = INFINITE) { return _event == NULL ? false : WaitForSingleObject(_event, timeout) == WAIT_OBJECT_0; }
         bool get() { return this->wait(0); }
 
         HANDLE handle() const { return _event; }
@@ -162,6 +167,13 @@ namespace GP {
         Thread() : _thread(NULL) {}
         Thread(Thread&& other) : _thread(other._thread) { other._thread = NULL; }
         Thread& operator=(Thread&& other) { std::swap(_thread, other._thread); return *this; }
+        void terminate() {
+            if (_thread != NULL) {
+                DWORD exitCode;
+                if (GetExitCodeThread(_thread, &exitCode) == STILL_ACTIVE)
+                    TerminateThread(_thread, 0);
+            }
+        }
 
         explicit Thread(unsigned(__stdcall *entry)(void*), void* args = NULL)
             : _thread(reinterpret_cast<HANDLE>(checked(_beginthreadex(NULL, 0, entry, args, 0, NULL)))) {}

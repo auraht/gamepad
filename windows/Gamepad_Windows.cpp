@@ -51,15 +51,14 @@ namespace GP {
     enum { TIMESTEP = 250, FAKE_NANOSECONDS_ELAPSED = 20000000 };
 
     Gamepad::~Gamepad() {
-        _valid_window_event.reset();
-        _valid_window_event.wait(10);
+            _valid_window_event.reset();
+            _valid_window_event.wait(100);
+            _reader_thread.terminate();
     }
 
     void Gamepad::create_impl_impl(HWND hwnd, LPCTSTR path) {
         _hwnd = hwnd;
-        _input_received_event = Event(false, true);
-        _valid_window_event = Event(true, true);
-
+        
         if (path != NULL) {
             // branch for actual gamepad...
 
@@ -79,6 +78,9 @@ namespace GP {
                 _device.close();
                 return;
             }
+
+            _input_received_event = Event(false, true);
+            _valid_window_event = Event(true, true);
 
             // 6. Start reader thread.
             //## TODO: Is using thread a good strategy?
