@@ -38,6 +38,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <memory>
 #include "Compatibility.hpp"
 
+#if GP_PLATFORM == GP_PLATFORM_WINDOWS
+#include <Windows.h>
+#include "windows/hidsdi.h"
+#include "windows/Shared.hpp"
+#include <vector>
+#endif
+
 namespace GP {
     class Transaction;
     
@@ -96,12 +103,46 @@ namespace GP {
         typedef void (*AxisGroupStateChangedCallback)(Gamepad& gamepad, AxisGroup axis, AxisState state);
         
     private:
-        struct Impl;
-        struct ImplDeleter {
-            void operator() (Impl* impl) const;
+#if GP_PLATFORM == GP_PLATFORM_WINDOWS
+        struct _AxisUsage {
+            Axis axis;
+            USAGE usage_page;
+            USAGE usage;
         };
+
+        HWND _hwnd;
+
+        // The following properties are for normal gamepads.
+        HID::Device _device;
+        HID::PreparsedData _preparsed;
+
+        std::vector<_AxisUsage> _valid_axes;
+        std::vector<USAGE_AND_PAGE> _valid_feature_usages;
+        ULONG _buttons_count, _feature_buttons_count;
+        USHORT _input_report_size, _output_report_size, _feature_report_size;
         
-        std::unique_ptr<Impl, ImplDeleter> _impl;
+        std::vector<char> _input_report_buffer;
+        std::vector<USAGE_AND_PAGE> _active_usages_buffer;
+        std::vector<USAGE_AND_PAGE> _last_active_usages;
+        ULONG _last_active_usages_count;
+
+        Event _input_received_event, _valid_window_event;
+        Thread _reader_thread;
+        HID::DeviceNotification _notif;
+
+        HANDLE device_handle() const { return _device.handle(); }
+
+        void create_impl_impl(HWND hwnd, LPCTSTR path);
+        
+        bool analyze_caps(const HIDP_CAPS& caps);
+
+        void handle_input_report(unsigned nanoseconds_elapsed);
+        static unsigned __stdcall reader_thread_entry(void* args);
+
+        void handle_mousemove_event(int x, int y);
+        void handle_key_event(UINT keycode, bool is_pressed);
+        static VOID CALLBACK mouse_stop_timer(HWND hwnd, UINT msg, UINT_PTR timer, DWORD timestamp);
+#endif
 
         void create_impl(void* implementation_data);
         void perform_impl_action(void* data);
@@ -140,6 +181,8 @@ namespace GP {
     public:
         Gamepad(void* implementation_data);
         // ^ This has to be public due to std::make_shared.
+
+        ~Gamepad();
     
         void set_axis_changed_callback(AxisChangedCallback callback) { _axis_changed_callback = callback; }
         void set_axis_state_changed_callback(AxisStateChangedCallback callback) { _axis_state_callback = callback; }
@@ -165,7 +208,7 @@ namespace GP {
         
         //## END WARNING
         
-        GP_EXPORT void associate(void* object, void (*deleter)(void*) = NULL);
+        void associate(void* object, void (*deleter)(void*) = NULL);
         void* associated_object() const { return _associated_object.get(); }
     };
 }

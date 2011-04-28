@@ -50,56 +50,16 @@ namespace GP {
     };
     enum { TIMESTEP = 250, FAKE_NANOSECONDS_ELAPSED = 20000000 };
 
-    struct Gamepad::Impl {
-        struct _AxisUsage {
-            Axis axis;
-            USAGE usage_page;
-            USAGE usage;
-        };
-
-        HWND _hwnd;
-        Gamepad* _gamepad;
-
-        // The following properties are for normal gamepads.
-        HID::Device _device;
-        HID::PreparsedData _preparsed;
-
-        std::vector<_AxisUsage> _valid_axes;
-        std::vector<USAGE_AND_PAGE> _valid_feature_usages;
-        ULONG _buttons_count, _feature_buttons_count;
-        USHORT _input_report_size, _output_report_size, _feature_report_size;
-        
-        std::vector<char> _input_report_buffer;
-        std::vector<USAGE_AND_PAGE> _active_usages_buffer;
-        std::vector<USAGE_AND_PAGE> _last_active_usages;
-        ULONG _last_active_usages_count;
-
-        Event _input_received_event, _valid_window_event;
-        Thread _reader_thread;
-        HID::DeviceNotification _notif;
-
-    public:
-        HANDLE device_handle() const { return _device.handle(); }
-
-        Impl(HWND hwnd, LPCTSTR path, Gamepad* gamepad);
-        ~Impl();
-
-        bool analyze_caps(const HIDP_CAPS& caps, Gamepad* gamepad);
-
-        void handle_input_report(unsigned nanoseconds_elapsed);
-        static unsigned __stdcall reader_thread_entry(void* args);
-
-        void handle_mousemove_event(int x, int y);
-        void handle_key_event(UINT keycode, bool is_pressed);
-        static VOID CALLBACK mouse_stop_timer(HWND hwnd, UINT msg, UINT_PTR timer, DWORD timestamp);
-    };
-
-    Gamepad::Impl::~Impl() {
+    Gamepad::~Gamepad() {
         _valid_window_event.reset();
         _valid_window_event.wait(10);
     }
 
-    Gamepad::Impl::Impl(HWND hwnd, LPCTSTR path, Gamepad* gamepad) : _hwnd(hwnd), _gamepad(gamepad), _input_received_event(false, true), _valid_window_event(true, true) {
+    void Gamepad::create_impl_impl(HWND hwnd, LPCTSTR path) {
+        _hwnd = hwnd;
+        _input_received_event = Event(false, true);
+        _valid_window_event = Event(true, true);
+
         if (path != NULL) {
             // branch for actual gamepad...
 
@@ -115,7 +75,7 @@ namespace GP {
             HIDP_CAPS caps = _preparsed.caps();
 
             // 4. make sure the HID class device *is* a gamepad.
-            if (!this->analyze_caps(caps, gamepad)) {
+            if (!this->analyze_caps(caps)) {
                 _device.close();
                 return;
             }
@@ -123,15 +83,15 @@ namespace GP {
             // 6. Start reader thread.
             //## TODO: Is using thread a good strategy?
             //         (Let's hope there won't be dozens of input devices connected to the same system.)
-            _reader_thread = Thread(&Gamepad::Impl::reader_thread_entry, this);
+            _reader_thread = Thread(&Gamepad::reader_thread_entry, this);
 
             // 7. register broadcast (WM_DEVICECHANGED) to allow proper handling of unplugging device.
             _notif = HID::DeviceNotification(hwnd, _device);
         }
     }
 
-    unsigned __stdcall Gamepad::Impl::reader_thread_entry(void* args) {
-        auto impl = static_cast<Gamepad::Impl*>(args);
+    unsigned __stdcall Gamepad::reader_thread_entry(void* args) {
+        auto impl = static_cast<Gamepad*>(args);
         DWORD errcode = 0;
 
         auto input_buf = &impl->_input_report_buffer[0];
@@ -155,7 +115,7 @@ namespace GP {
 
             if (impl->_input_received_event.wait_unchecked(1000)) {
                 impl->_input_received_event.reset();
-                PostMessage(impl->_hwnd, report_arrived_message, nanoseconds_elapsed, reinterpret_cast<LPARAM>(impl->_gamepad));
+                PostMessage(impl->_hwnd, report_arrived_message, nanoseconds_elapsed, reinterpret_cast<LPARAM>(impl));
             }
         }
         impl->_valid_window_event.set_unchecked();
@@ -163,7 +123,7 @@ namespace GP {
         return 0;
     }
 
-    bool Gamepad::Impl::analyze_caps(const HIDP_CAPS& caps, Gamepad* gamepad) {
+    bool Gamepad::analyze_caps(const HIDP_CAPS& caps) {
         // 4. make sure the HID class device *is* a gamepad.
         USAGE_AND_PAGE up = {caps.Usage, caps.UsagePage};
         auto cend = _VALID_USAGES + sizeof(_VALID_USAGES)/sizeof(*_VALID_USAGES);
@@ -177,12 +137,12 @@ namespace GP {
         std::vector<HIDP_VALUE_CAPS> value_caps;
         _preparsed.get_value_caps(HidP_Input, caps.NumberInputValueCaps, value_caps);
 
-        std::for_each(value_caps.cbegin(), value_caps.cend(), [this, gamepad](const HIDP_VALUE_CAPS& k) {
+        std::for_each(value_caps.cbegin(), value_caps.cend(), [this](const HIDP_VALUE_CAPS& k) {
             auto max_usage = k.IsRange ? k.Range.UsageMax : k.NotRange.Usage;
             for (auto usage = k.Range.UsageMin; usage <= max_usage; ++ usage) {
                 Axis axis = axis_from_usage(k.UsagePage, usage);
                 if (valid(axis)) {
-                    gamepad->set_bounds_for_axis(axis, k.LogicalMin, k.LogicalMax);
+                    this->set_bounds_for_axis(axis, k.LogicalMin, k.LogicalMax);
                     _AxisUsage axis_usage = {axis, k.UsagePage, usage};
                     _valid_axes.push_back(axis_usage);
                 }
@@ -216,19 +176,15 @@ namespace GP {
         return true;
     }
 
-    void Gamepad::ImplDeleter::operator() (Impl* impl) const {
-        delete impl;
-    }
-
     void Gamepad::create_impl(void* implementation_data) {
         auto data = static_cast<GamepadData*>(implementation_data);
-        _impl = std::unique_ptr<Impl, ImplDeleter>(new Impl(data->hwnd, data->path, this));
-        data->device_handle = _impl->device_handle();
+        create_impl_impl(data->hwnd, data->path);
+        data->device_handle = device_handle();
     }
 
 
 
-    void Gamepad::Impl::handle_input_report(unsigned nanoseconds_elapsed) {
+    void Gamepad::handle_input_report(unsigned nanoseconds_elapsed) {
         auto active_begin = &_active_usages_buffer[0];
         auto last_active_begin = &_last_active_usages[0];
         ULONG active_usages_count = _buttons_count;
@@ -242,23 +198,23 @@ namespace GP {
 
             PCHAR report = &_input_report_buffer[0];
 
-            std::for_each(_valid_axes.cbegin(), _valid_axes.cend(), [this, report](Impl::_AxisUsage axis_usage) {
+            std::for_each(_valid_axes.cbegin(), _valid_axes.cend(), [this, report](_AxisUsage axis_usage) {
                 auto result = _preparsed.scaled_usage_value(HidP_Input, report, _input_report_size, axis_usage.usage_page, axis_usage.usage);
-                _gamepad->set_axis_value(axis_usage.axis, result);
+                this->set_axis_value(axis_usage.axis, result);
             });
 
             _preparsed.get_active_usages(HidP_Input, report, _input_report_size, active_begin, &active_usages_count);
         }
 
-        _gamepad->handle_axes_change(nanoseconds_elapsed);
+        this->handle_axes_change(nanoseconds_elapsed);
 
         std::sort(active_begin, active_begin + active_usages_count);
         for_each_diff(active_begin, active_begin + active_usages_count, last_active_begin, last_active_begin + _last_active_usages_count,
             [this](USAGE_AND_PAGE active_usage) {
-                _gamepad->handle_button_change(button_from_usage(active_usage.UsagePage, active_usage.Usage), true);
+                this->handle_button_change(button_from_usage(active_usage.UsagePage, active_usage.Usage), true);
             },
             [this](USAGE_AND_PAGE inactive_usage) {
-                _gamepad->handle_button_change(button_from_usage(inactive_usage.UsagePage, inactive_usage.Usage), false);
+                this->handle_button_change(button_from_usage(inactive_usage.UsagePage, inactive_usage.Usage), false);
             }
         );
 
@@ -271,7 +227,7 @@ namespace GP {
 
         switch (report->tag) {
         case GamepadReport::input_report:
-            this->_impl->handle_input_report(report->input.nanoseconds_elapsed);
+            this->handle_input_report(report->input.nanoseconds_elapsed);
             break;
         default:
             break;
@@ -295,37 +251,37 @@ namespace GP {
 
 
     bool Gamepad::commit_transaction(const Transaction& transaction) {
-        std::vector<char> buf (_impl->_output_report_size);
+        std::vector<char> buf (_output_report_size);
 
-        if (fill_output_report(_impl->_preparsed, HidP_Output, &buf[0], _impl->_output_report_size, transaction.output_values(), transaction.output_buttons())) 
-            _impl->_device.write(&buf[0], _impl->_output_report_size);
+        if (fill_output_report(_preparsed, HidP_Output, &buf[0], _output_report_size, transaction.output_values(), transaction.output_buttons())) 
+            _device.write(&buf[0], _output_report_size);
 
-        if (_impl->_feature_report_size > _impl->_output_report_size)
-            buf.resize(_impl->_feature_report_size);
+        if (_feature_report_size > _output_report_size)
+            buf.resize(_feature_report_size);
 
-        if (fill_output_report(_impl->_preparsed, HidP_Feature, &buf[0], _impl->_feature_report_size, transaction.feature_values(), transaction.feature_buttons())) 
-            _impl->_device.set_feature(&buf[0], _impl->_feature_report_size);
+        if (fill_output_report(_preparsed, HidP_Feature, &buf[0], _feature_report_size, transaction.feature_values(), transaction.feature_buttons())) 
+            _device.set_feature(&buf[0], _feature_report_size);
         
         return true;
     }
 
     bool Gamepad::get_features(Transaction& transaction) {
-        std::vector<char> buf (_impl->_feature_report_size);
-        if (!_impl->_device.get_feature(&buf[0], _impl->_feature_report_size))
+        std::vector<char> buf (_feature_report_size);
+        if (!_device.get_feature(&buf[0], _feature_report_size))
             return false;
 
         PCHAR report = &buf[0];
 
 
-        std::for_each(_impl->_valid_feature_usages.cbegin(), _impl->_valid_feature_usages.cend(), [this, report, &transaction](USAGE_AND_PAGE up) {
-            auto value = _impl->_preparsed.usage_value(HidP_Feature, report, _impl->_feature_report_size, up.UsagePage, up.Usage);
+        std::for_each(_valid_feature_usages.cbegin(), _valid_feature_usages.cend(), [this, report, &transaction](USAGE_AND_PAGE up) {
+            auto value = _preparsed.usage_value(HidP_Feature, report, _feature_report_size, up.UsagePage, up.Usage);
             transaction.set_feature_value(up.UsagePage, up.Usage, value);
         });
 
-        ULONG active_buttons_count = _impl->_feature_buttons_count;
+        ULONG active_buttons_count = _feature_buttons_count;
         std::vector<USAGE_AND_PAGE> active_buttons_vector (active_buttons_count);
         auto active_buttons_begin = &active_buttons_vector[0];
-        _impl->_preparsed.get_active_usages(HidP_Feature, report, _impl->_feature_report_size, active_buttons_begin, &active_buttons_count);
+        _preparsed.get_active_usages(HidP_Feature, report, _feature_report_size, active_buttons_begin, &active_buttons_count);
         std::for_each(active_buttons_begin, active_buttons_begin + active_buttons_count, [&transaction](USAGE_AND_PAGE up) {
             transaction.set_feature_button(up.UsagePage, up.Usage, true);
         });
