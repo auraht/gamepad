@@ -37,13 +37,14 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <iterator>
 #include <memory>
 
-#ifndef _AURAHT_FRIENDS
-#define _AURAHT_FRIENDS
+#if GP_PLATFORM == GP_PLATFORM_WINDOWS
+#include <Windows.h>
+#include <unordered_map>
 #endif
+
 
 namespace GP {
     class Gamepad;
-
 
     ENUM_CLASS GamepadState {
         attached,
@@ -56,47 +57,57 @@ namespace GP {
         typedef void (*Callback)(void* self, const GamepadChangedObserver& observer, Gamepad& gamepad, GamepadState state);
     
     private:
-        struct Impl;
-        struct ImplDeleter {
-            GP_EXPORT void operator() (Impl* impl) const;
-        };
+
+        // Implementation-specific stuff...
+#if GP_PLATFORM == GP_PLATFORM_WINDOWS
+        HWND _hwnd;
+        HDEVNOTIFY _notif;
+        std::unordered_map<HANDLE, std::shared_ptr<Gamepad>> _active_devices;
+        // ^ we need to use a shared_ptr<> instead of unique_ptr<> since
+        //   MSVC does not have a proper .emplace().
+        Gamepad* _simulated_gamepad;
+
+        void create_impl(void* eventloop);
+
+        void create_invisible_listener_window();
+        void listen_for_hotplugged_devices();
+
+        static LRESULT CALLBACK message_handler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
+        void populate_existing_devices(const GUID* phid_guid);
+        Gamepad* insert_device_with_path(HWND hwnd, LPCTSTR path);
+#endif
         
-        std::unique_ptr<Impl, ImplDeleter> _impl;
-        
-        GP_EXPORT void create_impl(void* eventloop);
-        
+        // Implementation-independent stuff...
         void* _self;
         Callback _callback;
 
     public:
         struct const_iterator : public std::iterator<std::forward_iterator_tag, Gamepad> {
         private:
-            struct Impl;
-            struct ImplDeleter {
-                GP_EXPORT void operator() (Impl* impl) const;
-            };
+#if GP_PLATFORM == GP_PLATFORM_WINDOWS
+            std::unordered_map<HANDLE, std::shared_ptr<Gamepad>>::const_iterator cit;
 
-            std::unique_ptr<Impl, ImplDeleter> _impl;
-            const_iterator(Impl* impl) : _impl(impl) {};
+            const_iterator(const decltype(cit)& it) : cit(it) {}
+#endif
 
         public:
             typedef std::forward_iterator_tag iterator_tag;
         
-            GP_EXPORT const_iterator& operator++();
-            GP_EXPORT const_iterator operator++(int);
+            const_iterator& operator++();
+            const_iterator operator++(int);
             
-            GP_EXPORT Gamepad& operator*() const;
-            GP_EXPORT Gamepad& operator->() const { return **this; }
+            Gamepad& operator*() const;
+            Gamepad& operator->() const { return **this; }
             
-            const_iterator() : _impl(static_cast<Impl*>(NULL)) {}
+            const_iterator() {};
             
-            GP_EXPORT const_iterator(const const_iterator& other);
-            GP_EXPORT const_iterator(const_iterator&& other);
-            GP_EXPORT const_iterator& operator=(const const_iterator& other);
-            GP_EXPORT const_iterator& operator=(const_iterator&& other);
+            const_iterator(const const_iterator& other);
+            const_iterator(const_iterator&& other);
+            const_iterator& operator=(const const_iterator& other);
+            const_iterator& operator=(const_iterator&& other);
             
-            GP_EXPORT bool operator==(const const_iterator& other) const;
-            GP_EXPORT bool operator!=(const const_iterator& other) const;
+            bool operator==(const const_iterator& other) const;
+            bool operator!=(const const_iterator& other) const;
             
             friend class GamepadChangedObserver;
         };
@@ -114,7 +125,8 @@ namespace GP {
         GamepadChangedObserver(void* self, Callback callback, void* eventloop) : _self(self), _callback(callback) {
             this->create_impl(eventloop);
         }
-        
+        ~GamepadChangedObserver();
+
     private:
         GamepadChangedObserver(const GamepadChangedObserver&);
         GamepadChangedObserver(GamepadChangedObserver&&);
@@ -122,15 +134,15 @@ namespace GP {
         GamepadChangedObserver& operator=(GamepadChangedObserver&&);
 
     public:
-        GP_EXPORT const_iterator cbegin() const;
-        GP_EXPORT const_iterator cend() const;
+        const_iterator cbegin() const;
+        const_iterator cend() const;
         iterator begin() const { return this->cbegin(); }
         iterator end() const { return this->cend(); }
         
         
         /// Attach a simulated gamepad and return the attached one.
         /// returns NULL if this is not supported.
-        GP_EXPORT Gamepad* attach_simulated_gamepad();
+        Gamepad* attach_simulated_gamepad();
     };
     
 }

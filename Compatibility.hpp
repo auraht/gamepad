@@ -33,18 +33,18 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef COMPATIBILITY_HPP_tgk9yntqol1pp66r
 #define COMPATIBILITY_HPP_tgk9yntqol1pp66r
 
-/*
-#if _WIN32
-#ifdef _WINDLL
-#define EXPORT __declspec(dllexport)
-#else
-#define EXPORT __declspec(dllimport)
-#endif
-#else
-#define EXPORT
-#endif
-*/
+#define GP_PLATFORM_WINDOWS 0
+#define GP_PLATFORM_DARWIN 1
+
 #define GP_EXPORT
+
+#if _WIN32
+#define GP_PLATFORM GP_PLATFORM_WINDOWS
+#elif __APPLE__
+#define GP_PLATFORM GP_PLATFORM_DARWIN
+#else
+#pragma error This platform not yet supported.
+#endif
 
 #if __GNUC__
 #define ENUM_CLASS enum class

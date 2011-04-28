@@ -49,36 +49,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Windowsx.h>
 
 namespace GP {
-    struct GamepadChangedObserver::Impl {
-        HWND _hwnd;
-        HDEVNOTIFY _notif;
-        std::unordered_map<HANDLE, std::shared_ptr<Gamepad>> _active_devices;
-        // ^ we need to use a shared_ptr<> instead of unique_ptr<> since
-        //   MSVC does not have a proper .emplace().
-        Gamepad* _simulated_gamepad;
-
-    public:
-        Impl(GamepadChangedObserver* this_);
-        ~Impl();
-
-        void create_invisible_listener_window(GamepadChangedObserver* this_);
-        void listen_for_hotplugged_devices();
-
-        static LRESULT CALLBACK message_handler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
-        void populate_existing_devices(const GUID* phid_guid);
-        Gamepad* insert_device_with_path(HWND hwnd, LPCTSTR path);
-    };
-
-    GP_EXPORT void GamepadChangedObserver::ImplDeleter::operator() (Impl* impl) const {
-        delete impl;
-    }
-
-    GP_EXPORT void GamepadChangedObserver::create_impl(void*) {
-        _impl = std::unique_ptr<Impl, ImplDeleter>(new Impl(this));
-    }
 
     /// Create an invisible top-level window for listening to device attachment/removal and input report events.
-    void GamepadChangedObserver::Impl::create_invisible_listener_window(GamepadChangedObserver* this_) {
+    void GamepadChangedObserver::create_invisible_listener_window() {
         static struct OnceOnlyClassRegistration {
             HINSTANCE registered_hinst;
 
@@ -86,7 +59,7 @@ namespace GP {
                 WNDCLASSEX clsdef;
                 clsdef.cbSize = sizeof(clsdef);
                 clsdef.style = 0;
-                clsdef.lpfnWndProc = GamepadChangedObserver::Impl::message_handler;
+                clsdef.lpfnWndProc = GamepadChangedObserver::message_handler;
                 clsdef.cbClsExtra = 0;
                 clsdef.cbWndExtra = sizeof(GamepadChangedObserver*);
                 clsdef.hInstance = registered_hinst;
@@ -112,12 +85,13 @@ namespace GP {
             once.registered_hinst,  // hInst
             NULL);  // lpVoid
 
-        SetWindowLongPtr(_hwnd, 0, reinterpret_cast<LONG_PTR>(this_));
+        SetWindowLongPtr(_hwnd, 0, reinterpret_cast<LONG_PTR>(this));
     }
 
     
-    GamepadChangedObserver::Impl::Impl(GamepadChangedObserver* this_) : _simulated_gamepad(NULL) {
-        this->create_invisible_listener_window(this_);
+    void GamepadChangedObserver::create_impl(void* eventloop) {
+        _simulated_gamepad = NULL;
+        this->create_invisible_listener_window();
         
         // listen for hotplugged devices
         DEV_BROADCAST_DEVICEINTERFACE filter;
@@ -131,7 +105,7 @@ namespace GP {
         this->populate_existing_devices(&filter.dbcc_classguid);
     }
 
-    GamepadChangedObserver::Impl::~Impl() {
+    GamepadChangedObserver::~GamepadChangedObserver() {
         _active_devices.clear();
         if (_notif) {
             UnregisterDeviceNotification(_notif);
@@ -141,7 +115,7 @@ namespace GP {
         }
     }
 
-    Gamepad* GamepadChangedObserver::Impl::insert_device_with_path(HWND hwnd, LPCTSTR path) {
+    Gamepad* GamepadChangedObserver::insert_device_with_path(HWND hwnd, LPCTSTR path) {
         GamepadData data = {hwnd, path, INVALID_HANDLE_VALUE};
         auto gamepad = std::make_shared<Gamepad>(&data);
         
@@ -155,7 +129,7 @@ namespace GP {
             return NULL;
     }
 
-    LRESULT CALLBACK GamepadChangedObserver::Impl::message_handler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
+    LRESULT CALLBACK GamepadChangedObserver::message_handler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         auto this_ = reinterpret_cast<GamepadChangedObserver*>( GetWindowLongPtr(hwnd, 0) );
 
         switch (msg) {
@@ -166,8 +140,8 @@ namespace GP {
             {
                 auto detail = reinterpret_cast<PSP_DEVICE_INTERFACE_DETAIL_DATA>(lparam);
                 Gamepad* gamepad = detail 
-                    ? this_->_impl->insert_device_with_path(hwnd, detail->DevicePath) 
-                    : this_->_impl->_simulated_gamepad;
+                    ? this_->insert_device_with_path(hwnd, detail->DevicePath) 
+                    : this_->_simulated_gamepad;
                 if (gamepad != NULL)
                     this_->handle_event(*gamepad, GamepadState::attached);
                 free(detail);
@@ -193,7 +167,7 @@ namespace GP {
                     // plugged in.
                     if (event_data->dbch_devicetype == DBT_DEVTYP_DEVICEINTERFACE) {
                         auto dev_path = reinterpret_cast<PDEV_BROADCAST_DEVICEINTERFACE>(event_data)->dbcc_name;
-                        Gamepad* gamepad = this_->_impl->insert_device_with_path(hwnd, dev_path);
+                        Gamepad* gamepad = this_->insert_device_with_path(hwnd, dev_path);
                         if (gamepad != NULL)
                             this_->handle_event(*gamepad, GamepadState::attached);
                     }
@@ -204,9 +178,9 @@ namespace GP {
                     if (event_data->dbch_devicetype == DBT_DEVTYP_HANDLE) {
                         HANDLE hdevice = reinterpret_cast<PDEV_BROADCAST_HANDLE>(event_data)->dbch_handle;
                         //## TODO: Do we need a lock here?
-                        auto it = this_->_impl->_active_devices.find(hdevice);
+                        auto it = this_->_active_devices.find(hdevice);
                         this_->handle_event(*(it->second), GamepadState::detaching);
-                        this_->_impl->_active_devices.erase(it);
+                        this_->_active_devices.erase(it);
                     }
                     break;
                 }
@@ -217,7 +191,7 @@ namespace GP {
         return DefWindowProc(hwnd, msg, wparam, lparam);
     }
 
-    void GamepadChangedObserver::Impl::populate_existing_devices(const GUID* phid_guid) {
+    void GamepadChangedObserver::populate_existing_devices(const GUID* phid_guid) {
         // RAII structure to get and destroy the list of interfaces.
         struct DevInfo {
             HDEVINFO handle;
@@ -252,71 +226,59 @@ namespace GP {
         }
     }
 
-    GP_EXPORT Gamepad* GamepadChangedObserver::attach_simulated_gamepad() {
+    Gamepad* GamepadChangedObserver::attach_simulated_gamepad() {
         return NULL;
     }
 
 
-
-    struct GamepadChangedObserver::const_iterator::Impl {
-        std::unordered_map<HANDLE, std::shared_ptr<Gamepad>>::const_iterator cit;
-        
-        Impl(const std::unordered_map<HANDLE, std::shared_ptr<Gamepad>>::const_iterator& it)
-            : cit(it) {}
-    };
-
-    GP_EXPORT void GamepadChangedObserver::const_iterator::ImplDeleter::operator() (Impl* impl) const {
-        delete impl;
+    auto GamepadChangedObserver::cbegin() const -> const_iterator {
+        return const_iterator(_active_devices.cbegin());
     }
     
-    GP_EXPORT auto GamepadChangedObserver::cbegin() const -> const_iterator {
-        return const_iterator(new const_iterator::Impl(_impl->_active_devices.cbegin()));
-    }
-    
-    GP_EXPORT auto GamepadChangedObserver::cend() const -> const_iterator {
-        return const_iterator(new const_iterator::Impl(_impl->_active_devices.cend()));
+    auto GamepadChangedObserver::cend() const -> const_iterator {
+        return const_iterator(_active_devices.cend());
     }
 
-    GP_EXPORT auto GamepadChangedObserver::const_iterator::operator++() -> const_iterator& {
-        ++ _impl->cit;
+    auto GamepadChangedObserver::const_iterator::operator++() -> const_iterator& {
+        ++ cit;
         return *this;
     }
     
-    GP_EXPORT auto GamepadChangedObserver::const_iterator::operator++(int) -> const_iterator {
-        auto newImpl = new Impl(_impl->cit);
-        ++ _impl->cit;
-        return const_iterator(newImpl);
+    auto GamepadChangedObserver::const_iterator::operator++(int) -> const_iterator {
+        auto oldCit = cit;
+        ++ cit;
+        return const_iterator(oldCit);
     }
     
-    GP_EXPORT Gamepad& GamepadChangedObserver::const_iterator::operator*() const {
-        return *(_impl->cit->second);
+    Gamepad& GamepadChangedObserver::const_iterator::operator*() const {
+        return *(cit->second);
     }
     
-    GP_EXPORT GamepadChangedObserver::const_iterator::const_iterator(const const_iterator& other)
-        : _impl(new Impl(other._impl->cit)) {}
+    GamepadChangedObserver::const_iterator::const_iterator(const const_iterator& other)
+        : cit(other.cit) {}
     
-    GP_EXPORT GamepadChangedObserver::const_iterator::const_iterator(const_iterator&& other)
-        : _impl(std::move(other._impl)) {}
+    GamepadChangedObserver::const_iterator::const_iterator(const_iterator&& other)
+        : cit(std::move(other.cit)) {}
 
-    GP_EXPORT auto GamepadChangedObserver::const_iterator::operator=(const const_iterator& other) -> const_iterator& {
+    auto GamepadChangedObserver::const_iterator::operator=(const const_iterator& other) -> const_iterator& {
         if (this != &other) {
-            _impl = std::unique_ptr<Impl, ImplDeleter>(new Impl(other._impl->cit));
+            cit = other.cit;
         }
         return *this;
     }
-    GP_EXPORT auto GamepadChangedObserver::const_iterator::operator=(const_iterator&& other) -> const_iterator& {    
+    auto GamepadChangedObserver::const_iterator::operator=(const_iterator&& other) -> const_iterator& {    
         if (this != &other) {
-            _impl = std::move(other._impl);
+            std::swap(cit, other.cit);
         }
         return *this;
     }
     
-    GP_EXPORT bool GamepadChangedObserver::const_iterator::operator==(const const_iterator& other) const {
-        return _impl->cit == other._impl->cit;
+    bool GamepadChangedObserver::const_iterator::operator==(const const_iterator& other) const {
+        return cit == other.cit;
     }
     
-    GP_EXPORT bool GamepadChangedObserver::const_iterator::operator!=(const const_iterator& other) const {
-        return _impl->cit != other._impl->cit;
+    bool GamepadChangedObserver::const_iterator::operator!=(const const_iterator& other) const {
+        return cit != other.cit;
     }
 }
 
