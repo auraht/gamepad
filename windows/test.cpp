@@ -47,12 +47,12 @@ void gamepad_axis_changed(GP::Gamepad& gamepad, GP::Axis axis, long new_value, u
 }
 
 void gamepad_axis_group_state_changed(GP::Gamepad& gamepad, GP::AxisGroup ag, GP::AxisState state) {
-    if (ag != GP::AxisGroup::translation)
+    if (ag != GP::AxisGroup::rigid_motion)
         printf("Gamepad %p: Axis group %s %s.\n", &gamepad, GP::name<char>(ag), state == GP::AxisState::start_moving ? "start moving" : "stop moving");
 }
 
 void gamepad_axis_group_changed(GP::Gamepad& gamepad, GP::AxisGroup ag, long new_values[], unsigned nse) {
-    if (ag != GP::AxisGroup::translation)
+    if (ag != GP::AxisGroup::rigid_motion)
         printf("Gamepad %p: Axis group %s changed to <%ld %ld %ld> (%uns).\n", &gamepad, GP::name<char>(ag), new_values[0], new_values[1], new_values[2], nse);
 }
 

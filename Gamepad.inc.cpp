@@ -132,7 +132,7 @@ namespace GP {
     template <>
     inline const char* name(AxisGroup axis_group) { 
         const char* kAxisNames[] = {
-            "translation", "rotation", "vector", "body_relative_vector", "translation_2d", "rigid_motion"
+            /*"translation", "rotation", "vector", "body_relative_vector", "translation_2d",*/ "rigid_motion"
         };
         return valid(axis_group) ? kAxisNames[static_cast<int>(axis_group)] : "";
     }
@@ -140,7 +140,7 @@ namespace GP {
     template <>
     inline const wchar_t* name(AxisGroup axis_group) { 
         const wchar_t* kAxisNames[] = {
-            L"translation", L"rotation", L"vector", L"body_relative_vector", L"translation_2d", L"rigid_motion"
+            /*L"translation", L"rotation", L"vector", L"body_relative_vector", L"translation_2d",*/ L"rigid_motion"
         };
         return valid(axis_group) ? kAxisNames[static_cast<int>(axis_group)] : L"";
     }
@@ -149,7 +149,7 @@ namespace GP {
     template <>
     inline const char16_t* name(AxisGroup axis_group) { 
         const char16_t* kAxisNames[] = {
-            u"translation", u"rotation", u"vector", u"body_relative_vector", u"translation_2d", u"rigid_motion"
+            /*u"translation", u"rotation", u"vector", u"body_relative_vector", u"translation_2d",*/ u"rigid_motion"
         };
         return valid(axis_group) ? kAxisNames[static_cast<int>(axis_group)] : u"";
     }
@@ -157,7 +157,7 @@ namespace GP {
     template <>
     inline const char32_t* name(AxisGroup axis_group) { 
         const char32_t* kAxisNames[] = {
-            U"translation", U"rotation", U"vector", U"body_relative_vector", U"translation_2d", U"rigid_motion"
+            /*U"translation", U"rotation", U"vector", U"body_relative_vector", U"translation_2d",*/ U"rigid_motion"
         };
         return valid(axis_group) ? kAxisNames[static_cast<int>(axis_group)] : U"";
     }
