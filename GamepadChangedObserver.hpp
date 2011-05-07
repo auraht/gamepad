@@ -40,6 +40,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #if GP_PLATFORM == GP_PLATFORM_WINDOWS
 #include <Windows.h>
 #include <unordered_map>
+#elif GP_PLATFORM == GP_PLATFORM_DARWIN
+#include <IOKit/hid/IOHIDManager.h>
+#include <CoreFoundation/CoreFoundation.h>
+#include <unordered_map>
+#include "darwin/Shared.hpp"
 #endif
 
 
@@ -60,12 +65,12 @@ namespace GP {
 
         // Implementation-specific stuff...
 #if GP_PLATFORM == GP_PLATFORM_WINDOWS
+        
         HWND _hwnd;
         HDEVNOTIFY _notif;
         std::unordered_map<HANDLE, std::shared_ptr<Gamepad>> _active_devices;
         // ^ we need to use a shared_ptr<> instead of unique_ptr<> since
         //   MSVC does not have a proper .emplace().
-        Gamepad* _simulated_gamepad;
 
         void create_impl(void* eventloop);
 
@@ -75,6 +80,24 @@ namespace GP {
         static LRESULT CALLBACK message_handler(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam);
         void populate_existing_devices(const GUID* phid_guid);
         Gamepad* insert_device_with_path(HWND hwnd, LPCTSTR path);
+
+#elif GP_PLATFORM == GP_PLATFORM_DARWIN
+
+        IOHIDManager _manager;
+        CFRunLoopRef _runloop;
+        std::unordered_map<IOHIDDeviceRef, std::shared_ptr<Gamepad>> _active_devices;
+        // ^ we need to use a shared_ptr<> instead of unique_ptr<> because of
+        //   http://gcc.gnu.org/bugzilla/show_bug.cgi?id=44436
+
+        void create_impl(void* runloop);
+        
+        void set_observe_joysticks();
+        void add_active_device(IOHIDDeviceRef device);
+        void remove_active_device(IOHIDDeviceRef device);
+        
+        static void matched_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device);
+        static void removing_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device);
+
 #endif
         
         // Implementation-independent stuff...
@@ -84,30 +107,51 @@ namespace GP {
     public:
         struct const_iterator : public std::iterator<std::forward_iterator_tag, Gamepad> {
         private:
+
 #if GP_PLATFORM == GP_PLATFORM_WINDOWS
             std::unordered_map<HANDLE, std::shared_ptr<Gamepad>>::const_iterator cit;
-
-            const_iterator(const decltype(cit)& it) : cit(it) {}
+#elif GP_PLATFORM == GP_PLATFORM_DARWIN
+            std::unordered_map<IOHIDDeviceRef, std::shared_ptr<Gamepad>>::const_iterator cit;
 #endif
+            const_iterator(const decltype(cit)& it) : cit(it) {}            
 
         public:
             typedef std::forward_iterator_tag iterator_tag;
         
-            const_iterator& operator++();
-            const_iterator operator++(int);
+            const_iterator& operator++() {
+                ++cit;
+                return *this;
+            }
+            const_iterator operator++(int) {
+                auto oldCit = cit;
+                ++cit;
+                return const_iterator(oldCit);
+            }
             
-            Gamepad& operator*() const;
+            Gamepad& operator*() const { return *(cit->second); }
             Gamepad& operator->() const { return **this; }
             
             const_iterator() {};
             
-            const_iterator(const const_iterator& other);
-            const_iterator(const_iterator&& other);
-            const_iterator& operator=(const const_iterator& other);
-            const_iterator& operator=(const_iterator&& other);
+            const_iterator(const const_iterator& other) : cit(other.cit) {}
+            const_iterator(const_iterator&& other) : cit(std::move(other.cit)) {}
+            const_iterator& operator=(const const_iterator& other) {
+                if (this != &other)
+                    cit = other.cit;
+                return *this;
+            }
+            const_iterator& operator=(const_iterator&& other) {
+                if (this != &other)
+                    std::swap(cit, other.cit);
+                return *this;
+            }
             
-            bool operator==(const const_iterator& other) const;
-            bool operator!=(const const_iterator& other) const;
+            bool operator==(const const_iterator& other) const {
+                return cit == other.cit;
+            }
+            bool operator!=(const const_iterator& other) const {
+                return cit != other.cit;
+            }
             
             friend class GamepadChangedObserver;
         };
@@ -138,11 +182,6 @@ namespace GP {
         const_iterator cend() const;
         iterator begin() const { return this->cbegin(); }
         iterator end() const { return this->cend(); }
-        
-        
-        /// Attach a simulated gamepad and return the attached one.
-        /// returns NULL if this is not supported.
-        Gamepad* attach_simulated_gamepad();
     };
     
 }

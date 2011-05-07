@@ -15,3 +15,5 @@ windows/msvc_solution/Release
 windows/msvc_solution/*/Debug
 windows/msvc_solution/*/Release
 *.zip
+*.swp
+*.a

@@ -43,6 +43,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "windows/hidsdi.h"
 #include "windows/Shared.hpp"
 #include <vector>
+#elif GP_PLATFORM == GP_PLATFORM_DARWIN
+#include <IOKit/hid/IOHIDManager.h>
+#include <unordered_map>
+#include <cstdint>
 #endif
 
 namespace GP {
@@ -103,7 +107,9 @@ namespace GP {
         typedef void (*AxisGroupStateChangedCallback)(Gamepad& gamepad, AxisGroup axis, AxisState state);
         
     private:
+
 #if GP_PLATFORM == GP_PLATFORM_WINDOWS
+
         struct _AxisUsage {
             Axis axis;
             USAGE usage_page;
@@ -142,6 +148,18 @@ namespace GP {
         void handle_mousemove_event(int x, int y);
         void handle_key_event(UINT keycode, bool is_pressed);
         static VOID CALLBACK mouse_stop_timer(HWND hwnd, UINT msg, UINT_PTR timer, DWORD timestamp);
+
+#else
+
+        uint64_t _last_report_time;
+        std::unordered_map<int, IOHIDElementRef> _valid_output_elements, _valid_feature_elements;
+        IOHIDDeviceRef _device; 
+
+        static void handle_input_value(void* context, IOReturn, void*, IOHIDValueRef value);
+        static void handle_report(void* context, IOReturn, void*, IOHIDReportType, uint32_t, uint8_t*, CFIndex);
+
+        void create_impl_impl(IOHIDDeviceRef device);
+        
 #endif
 
         void create_impl(void* implementation_data);

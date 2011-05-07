@@ -226,59 +226,12 @@ namespace GP {
         }
     }
 
-    Gamepad* GamepadChangedObserver::attach_simulated_gamepad() {
-        return NULL;
-    }
-
-
     auto GamepadChangedObserver::cbegin() const -> const_iterator {
         return const_iterator(_active_devices.cbegin());
     }
     
     auto GamepadChangedObserver::cend() const -> const_iterator {
         return const_iterator(_active_devices.cend());
-    }
-
-    auto GamepadChangedObserver::const_iterator::operator++() -> const_iterator& {
-        ++ cit;
-        return *this;
-    }
-    
-    auto GamepadChangedObserver::const_iterator::operator++(int) -> const_iterator {
-        auto oldCit = cit;
-        ++ cit;
-        return const_iterator(oldCit);
-    }
-    
-    Gamepad& GamepadChangedObserver::const_iterator::operator*() const {
-        return *(cit->second);
-    }
-    
-    GamepadChangedObserver::const_iterator::const_iterator(const const_iterator& other)
-        : cit(other.cit) {}
-    
-    GamepadChangedObserver::const_iterator::const_iterator(const_iterator&& other)
-        : cit(std::move(other.cit)) {}
-
-    auto GamepadChangedObserver::const_iterator::operator=(const const_iterator& other) -> const_iterator& {
-        if (this != &other) {
-            cit = other.cit;
-        }
-        return *this;
-    }
-    auto GamepadChangedObserver::const_iterator::operator=(const_iterator&& other) -> const_iterator& {    
-        if (this != &other) {
-            std::swap(cit, other.cit);
-        }
-        return *this;
-    }
-    
-    bool GamepadChangedObserver::const_iterator::operator==(const const_iterator& other) const {
-        return cit == other.cit;
-    }
-    
-    bool GamepadChangedObserver::const_iterator::operator!=(const const_iterator& other) const {
-        return cit != other.cit;
     }
 }
 

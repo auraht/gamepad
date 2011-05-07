@@ -33,109 +33,55 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "../GamepadChangedObserver.hpp"
 #include "../Gamepad.hpp"
-#include "../Exception.hpp"
 
-#include "Shared.hpp"
-#include <IOKit/hid/IOHIDManager.h>
 #include <algorithm>
 #include <exception>
-#include <unordered_map>
 #include <memory>
 
 
 namespace GP {
-    struct IOHIDManager : CFType<IOHIDManagerRef> {
-        IOHIDManager() : CFType(
-            IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone)
-        ) {}
-        
-        void set_device_matching_multiple(const CFArray& array) {
-            IOHIDManagerSetDeviceMatchingMultiple(value, array.value);
-        }
-        void register_device_matched(IOHIDDeviceCallback callback, void* context) {
-            IOHIDManagerRegisterDeviceMatchingCallback(value, callback, context);
-        }
-        void register_device_removal(IOHIDDeviceCallback callback, void* context) {
-            IOHIDManagerRegisterDeviceRemovalCallback(value, callback, context);
-        }
-        
-        void schedule(CFRunLoopRef runloop) {
-            IOHIDManagerScheduleWithRunLoop(value, runloop, kCFRunLoopDefaultMode);
-        }
-        void open() {
-            IOReturn retval = IOHIDManagerOpen(value, kIOHIDOptionsTypeNone);
-            if (retval != kIOReturnSuccess)
-                throw SystemErrorException(retval);
-        }
-        void unschedule(CFRunLoopRef runloop) {
-            IOHIDManagerUnscheduleFromRunLoop(value, runloop, kCFRunLoopDefaultMode);
-        }
-        void close() {
-            IOHIDManagerClose(value, kIOHIDOptionsTypeNone);
-        }
-    };
-    
-    
-    struct GamepadChangedObserver::Impl {
-        IOHIDManager _manager;
-        CFRunLoopRef _runloop;
-        std::unordered_map<IOHIDDeviceRef, std::shared_ptr<Gamepad>> _active_devices;
-        // ^ we need to use a shared_ptr<> instead of unique_ptr<> because of
-        //   http://gcc.gnu.org/bugzilla/show_bug.cgi?id=44436 
-        
-        void set_observe_joysticks();
-        void add_active_device(IOHIDDeviceRef device, GamepadChangedObserver* observer);
-        void remove_active_device(IOHIDDeviceRef device, GamepadChangedObserver* observer);
-        
-        Impl(GamepadChangedObserver* observer, CFRunLoopRef runloop);
-        ~Impl();
-        
-        static void matched_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device);
-        static void removing_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device);
-    };
-    
-    GamepadChangedObserver::Impl::Impl(GamepadChangedObserver* observer, CFRunLoopRef runloop) {
+    void GamepadChangedObserver::create_impl(void* runloop) {
         this->set_observe_joysticks();
-        _manager.register_device_matched(&Impl::matched_device_cb, observer);
-        _manager.register_device_removal(&Impl::removing_device_cb, observer);
+        _manager.register_device_matched(&matched_device_cb, this);
+        _manager.register_device_removal(&removing_device_cb, this);
         
-        _runloop = runloop;
-        _manager.schedule(runloop);
+        _runloop = static_cast<CFRunLoopRef>(runloop);
+        _manager.schedule(_runloop);
         _manager.open();
     }
     
-    GamepadChangedObserver::Impl::~Impl() {
+    GamepadChangedObserver::~GamepadChangedObserver() {
         _manager.unschedule(_runloop);
         _manager.register_device_matched(NULL, NULL);
         _manager.register_device_removal(NULL, NULL);
         _manager.close();
     }
     
-    void GamepadChangedObserver::Impl::add_active_device(IOHIDDeviceRef device, GamepadChangedObserver* observer) {
+    void GamepadChangedObserver::add_active_device(IOHIDDeviceRef device) {
         auto gamepad = std::make_shared<Gamepad>(device);
         _active_devices.insert({device, gamepad});
-        observer->handle_event(*gamepad, GamepadState::attached);
+        this->handle_event(*gamepad, GamepadState::attached);
     }
     
-    void GamepadChangedObserver::Impl::remove_active_device(IOHIDDeviceRef device, GamepadChangedObserver* observer) {
+    void GamepadChangedObserver::remove_active_device(IOHIDDeviceRef device) {
         auto it = _active_devices.find(device);
         auto gamepad = (it->second);
-        observer->handle_event(*gamepad, GamepadState::detaching);
+        this->handle_event(*gamepad, GamepadState::detaching);
         _active_devices.erase(it);
     }
     
     
-    void GamepadChangedObserver::Impl::matched_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device) {
+    void GamepadChangedObserver::matched_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device) {
         auto this_ = static_cast<GamepadChangedObserver*>(context);
-        this_->_impl->add_active_device(device, this_);        
+        this_->add_active_device(device);        
     }
     
-    void GamepadChangedObserver::Impl::removing_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device) {
+    void GamepadChangedObserver::removing_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device) {
         auto this_ = static_cast<GamepadChangedObserver*>(context);
-        this_->_impl->remove_active_device(device, this_);
+        this_->remove_active_device(device);
     }
     
-    void GamepadChangedObserver::Impl::set_observe_joysticks() {
+    void GamepadChangedObserver::set_observe_joysticks() {
         CFNumber generic_desktop_number (kHIDPage_GenericDesktop);
         
         CFTypeRef keys[] = {CFSTR(kIOHIDDeviceUsagePageKey), CFSTR(kIOHIDDeviceUsageKey)};
@@ -162,80 +108,12 @@ namespace GP {
         _manager.set_device_matching_multiple(alternatives);
     }
     
-    void GamepadChangedObserver::ImplDeleter::operator() (Impl* impl) const {
-        delete impl;
-    }
-    
-    void GamepadChangedObserver::create_impl(void* eventloop) {
-        _impl = std::unique_ptr<Impl, ImplDeleter>(new Impl(this, static_cast<CFRunLoopRef>(eventloop)));
-    }
-    
-    Gamepad* GamepadChangedObserver::attach_simulated_gamepad() {
-        return NULL;
-    }
-    
-
-    
-    struct GamepadChangedObserver::const_iterator::Impl {
-        std::unordered_map<IOHIDDeviceRef, std::shared_ptr<Gamepad>>::const_iterator cit;
-        
-        Impl(std::unordered_map<IOHIDDeviceRef, std::shared_ptr<Gamepad>>::const_iterator it)
-            : cit{it} {}
-    };
-    
-    void GamepadChangedObserver::const_iterator::ImplDeleter::operator() (Impl* impl) const {
-        delete impl;
-    }
-    
     auto GamepadChangedObserver::cbegin() const -> const_iterator {
-        return const_iterator(new const_iterator::Impl(_impl->_active_devices.cbegin()));
+        return const_iterator(_active_devices.cbegin());
     }
     
     auto GamepadChangedObserver::cend() const -> const_iterator {
-        return const_iterator(new const_iterator::Impl(_impl->_active_devices.cend()));
+        return const_iterator(_active_devices.cend());
     }
-
-    auto GamepadChangedObserver::const_iterator::operator++() -> const_iterator& {
-        ++ _impl->cit;
-        return *this;
-    }
-    
-    auto GamepadChangedObserver::const_iterator::operator++(int) -> const_iterator {
-        auto newImpl = new Impl(_impl->cit);
-        ++ _impl->cit;
-        return const_iterator(newImpl);
-    }
-    
-    Gamepad& GamepadChangedObserver::const_iterator::operator*() const {
-        return *(_impl->cit->second);
-    }
-    
-    GamepadChangedObserver::const_iterator::const_iterator(const const_iterator& other)
-        : _impl(new Impl(other._impl->cit)) {}
-    
-    GamepadChangedObserver::const_iterator::const_iterator(const_iterator&& other)
-        : _impl(std::move(other._impl)) {}
-
-    auto GamepadChangedObserver::const_iterator::operator=(const const_iterator& other) -> const_iterator& {
-        if (this != &other) {
-            _impl = std::unique_ptr<Impl, ImplDeleter>(new Impl(other._impl->cit));
-        }
-        return *this;
-    }
-    auto GamepadChangedObserver::const_iterator::operator=(const_iterator&& other) -> const_iterator& {    
-        if (this != &other) {
-            _impl = std::move(other._impl);
-        }
-        return *this;
-    }
-    
-    bool GamepadChangedObserver::const_iterator::operator==(const const_iterator& other) const {
-        return _impl->cit == other._impl->cit;
-    }
-    
-    bool GamepadChangedObserver::const_iterator::operator!=(const const_iterator& other) const {
-        return _impl->cit != other._impl->cit;
-    }
-    
 }
 

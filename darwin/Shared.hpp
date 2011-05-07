@@ -34,6 +34,10 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #define SHARED_HPP_kiq5j0brst2wqaor 1
 
 #include <CoreFoundation/CoreFoundation.h>
+#include <IOKit/hid/IOHIDManager.h>
+#include "../Exception.hpp"
+
+namespace GP {
 
 template <typename T>
 struct CFType {
@@ -87,5 +91,38 @@ struct CFMutableArray : CFType<CFMutableArrayRef> {
         CFArrayAppendValue(value, new_value);
     }
 };
+
+struct IOHIDManager : CFType<IOHIDManagerRef> {
+    IOHIDManager() : CFType(
+        IOHIDManagerCreate(kCFAllocatorDefault, kIOHIDOptionsTypeNone)
+    ) {}
+    
+    void set_device_matching_multiple(const CFArray& array) {
+        IOHIDManagerSetDeviceMatchingMultiple(value, array.value);
+    }
+    void register_device_matched(IOHIDDeviceCallback callback, void* context) {
+        IOHIDManagerRegisterDeviceMatchingCallback(value, callback, context);
+    }
+    void register_device_removal(IOHIDDeviceCallback callback, void* context) {
+        IOHIDManagerRegisterDeviceRemovalCallback(value, callback, context);
+    }
+    
+    void schedule(CFRunLoopRef runloop) {
+        IOHIDManagerScheduleWithRunLoop(value, runloop, kCFRunLoopDefaultMode);
+    }
+    void open() {
+        IOReturn retval = IOHIDManagerOpen(value, kIOHIDOptionsTypeNone);
+        if (retval != kIOReturnSuccess)
+            throw SystemErrorException(retval);
+    }
+    void unschedule(CFRunLoopRef runloop) {
+        IOHIDManagerUnscheduleFromRunLoop(value, runloop, kCFRunLoopDefaultMode);
+    }
+    void close() {
+        IOHIDManagerClose(value, kIOHIDOptionsTypeNone);
+    }
+};
+
+}
 
 #endif
