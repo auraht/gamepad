@@ -32,20 +32,21 @@
 OBJECTS=../Gamepad.o Gamepad_Darwin.o GamepadChangedObserver_Darwin.o
 
 CXX=g++-4.5
+LD=libtool
 CPPFLAGS=
 CXXFLAGS=-std=c++0x -pedantic -Wall -Wextra -O3
-LDFLAGS=-framework CoreFoundation -framework IOKit -dynamiclib -current_version 0.6.0
+LDFLAGS=-static
 
 .PHONY: all clean
 
 
-all: libgamepad.dylib
+all: libgamepad.a
 
 clean: 
 	$(RM) $(OBJECTS)
 
-test: test.cpp libgamepad.dylib
-	$(CXX) -o $@ $(CXXFLAGS) -framework CoreFoundation -L. -lgamepad -iquote .. $<
+test: test.cpp libgamepad.a
+	$(CXX) -o $@ $(CXXFLAGS) -framework CoreFoundation -framework IOKit -L. -lgamepad -iquote .. $<
 
-libgamepad.dylib: $(OBJECTS)
-	$(CXX) -o $@ $(LDFLAGS) $^
+libgamepad.a: $(OBJECTS)
+	$(LD) -o $@ $(LDFLAGS) $^

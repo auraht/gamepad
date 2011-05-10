@@ -33,15 +33,13 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include "../Transaction.hpp"
 #include <CoreFoundation/CoreFoundation.h>
-#include <unordered_map>
 #include <algorithm>
 #include <mach/mach_time.h>
 #include "Shared.hpp"
-#include <IOKit/hid/IOHIDManager.h>
 #include "../Gamepad.hpp"
+#include "Shared.hpp"
 
-
-struct IOHIDTransaction : CFType<IOHIDTransactionRef> {
+struct IOHIDTransaction : GP::CFType<IOHIDTransactionRef> {
     IOHIDTransaction(IOHIDDeviceRef device, IOHIDTransactionDirectionType direction) : CFType(
         IOHIDTransactionCreate(kCFAllocatorDefault, device, direction, 0)
     ) {}
@@ -64,7 +62,7 @@ struct IOHIDTransaction : CFType<IOHIDTransactionRef> {
     }
 };
 
-struct IOHIDValue : CFType<IOHIDValueRef> {
+struct IOHIDValue : GP::CFType<IOHIDValueRef> {
     IOHIDValue(IOHIDElementRef element, uint64_t timestamp, CFIndex the_value) : CFType(
         IOHIDValueCreateWithIntegerValue(kCFAllocatorDefault, element, timestamp, the_value)
     ) {}
@@ -72,40 +70,22 @@ struct IOHIDValue : CFType<IOHIDValueRef> {
 
 
 namespace GP {
-    struct Gamepad::Impl {
-        uint64_t _last_report_time;
-        std::unordered_map<int, IOHIDElementRef> _valid_output_elements, _valid_feature_elements;
-        IOHIDDeviceRef _device;
-
-    private:
-        static void handle_input_value(void* context, IOReturn, void*, IOHIDValueRef value);
-        static void handle_report(void* context, IOReturn, void*, IOHIDReportType, uint32_t, uint8_t*, CFIndex);
-
-    public:
-        Impl(Gamepad* gamepad, IOHIDDeviceRef device);
-    };
-    
-    void Gamepad::ImplDeleter::operator() (Impl* impl) const {
-        delete impl;
-    }
-    
     void Gamepad::create_impl(void* implementation_data) {
         auto device = static_cast<IOHIDDeviceRef>(implementation_data);
-        _impl = std::unique_ptr<Impl, ImplDeleter>(new Impl(this, device));
+        this->create_impl_impl(device);
     }
     
-    
-    Gamepad::Impl::Impl(Gamepad* gamepad, IOHIDDeviceRef device) 
-        : _last_report_time{mach_absolute_time()}, _device{device}
-    {
+    void Gamepad::create_impl_impl(IOHIDDeviceRef device) {
+        _last_report_time = mach_absolute_time();
+        _device = device;
+
         CFArray elements ( IOHIDDeviceCopyMatchingElements(device, NULL, kIOHIDOptionsTypeNone) );
         CFMutableArray restricted_elements;
         
         struct Ctx {
             Gamepad* gamepad;
-            Impl* impl;
             CFMutableArray& restricted_elements;
-        } ctx = {gamepad, this, restricted_elements};
+        } ctx = {this, restricted_elements};
         
         elements.for_each(&ctx, [](const void* value, void* context) {
             auto ctx = static_cast<Ctx*>(context);
@@ -122,8 +102,8 @@ namespace GP {
                 if (elem_type == kIOHIDElementTypeOutput || elem_type == kIOHIDElementTypeFeature) {
                     int compiled_usage = usage_page << 16 | usage;
                     auto the_map = (elem_type == kIOHIDElementTypeOutput
-                                        ? ctx->impl->_valid_output_elements
-                                        : ctx->impl->_valid_feature_elements);
+                                        ? ctx->gamepad->_valid_output_elements
+                                        : ctx->gamepad->_valid_feature_elements);
                     // ^ note: the parenthesis is necessary to make the_map an rvalue reference.
                     the_map.insert({compiled_usage, element});
                 }
@@ -139,12 +119,12 @@ namespace GP {
         
         IOHIDDeviceSetInputValueMatchingMultiple(device, restricted_elements.value);
         
-        IOHIDDeviceRegisterInputValueCallback(device, Gamepad::Impl::handle_input_value, gamepad);
-        IOHIDDeviceRegisterInputReportCallback(device, NULL, 0, Gamepad::Impl::handle_report, gamepad);
+        IOHIDDeviceRegisterInputValueCallback(device, &handle_input_value, this);
+        IOHIDDeviceRegisterInputReportCallback(device, NULL, 0, &handle_report, this);
         
     }
     
-    void Gamepad::Impl::handle_input_value(void* context, IOReturn, void*, IOHIDValueRef value) {
+    void Gamepad::handle_input_value(void* context, IOReturn, void*, IOHIDValueRef value) {
         Gamepad* this_ = static_cast<Gamepad*>(context);
         IOHIDElementRef element = IOHIDValueGetElement(value);
         long new_value = IOHIDValueGetIntegerValue(value);
@@ -161,7 +141,7 @@ namespace GP {
         }
     }
         
-    void Gamepad::Impl::handle_report(void* context, IOReturn, void*, IOHIDReportType, uint32_t, uint8_t*, CFIndex) {
+    void Gamepad::handle_report(void* context, IOReturn, void*, IOHIDReportType, uint32_t, uint8_t*, CFIndex) {
         // Ref: http://developer.apple.com/library/mac/#qa/qa2004/qa1398.html
         static mach_timebase_info_data_t timebase_info;
         if (!timebase_info.denom)
@@ -170,9 +150,9 @@ namespace GP {
         Gamepad* this_ = static_cast<Gamepad*>(context);
         
         auto time_now = mach_absolute_time();
-        auto timestamp_elapsed = time_now - this_->_impl->_last_report_time;
+        auto timestamp_elapsed = time_now - this_->_last_report_time;
         unsigned nanoseconds_elapsed = timestamp_elapsed * timebase_info.numer / timebase_info.denom;
-        this_->_impl->_last_report_time = time_now;
+        this_->_last_report_time = time_now;
         
         this_->handle_axes_change(nanoseconds_elapsed);
     }
@@ -183,7 +163,7 @@ namespace GP {
     //             output format is reliably decoded. Do not use them in 
     //             productive environment.
     bool Gamepad::commit_transaction(const Transaction& transaction) {
-        IOHIDTransaction trans (_impl->_device, kIOHIDTransactionDirectionTypeOutput);
+        IOHIDTransaction trans (_device, kIOHIDTransactionDirectionTypeOutput);
         auto abs_time = mach_absolute_time();        
         
         struct TransactionAppender {
@@ -203,8 +183,8 @@ namespace GP {
             TransactionAppender(IOHIDTransaction& transaction_, const std::unordered_map<int, IOHIDElementRef>& elements, uint64_t abs_time_)
                 : abs_time{abs_time_}, valid_elements(elements), invalid_element_it{elements.cend()}, trans(transaction_) {}
         
-        } output_appender(trans, _impl->_valid_output_elements, abs_time), 
-            feature_appender(trans, _impl->_valid_feature_elements, abs_time);
+        } output_appender(trans, _valid_output_elements, abs_time), 
+            feature_appender(trans, _valid_feature_elements, abs_time);
 
         
         auto output_values = transaction.output_values();
@@ -224,9 +204,9 @@ namespace GP {
     }
     
     bool Gamepad::get_features(Transaction& transaction) {
-        IOHIDTransaction trans (_impl->_device, kIOHIDTransactionDirectionTypeInput);
+        IOHIDTransaction trans (_device, kIOHIDTransactionDirectionTypeInput);
         
-        std::for_each(_impl->_valid_feature_elements.cbegin(), _impl->_valid_feature_elements.cend(),
+        std::for_each(_valid_feature_elements.cbegin(), _valid_feature_elements.cend(),
             [&trans](const std::pair<int, IOHIDElementRef>& elem) {
                 trans.add(elem.second);
             }
@@ -236,7 +216,7 @@ namespace GP {
         bool succeed = (retval == kIOReturnSuccess);
         
         if (succeed) {
-            std::for_each(_impl->_valid_feature_elements.cbegin(), _impl->_valid_feature_elements.cend(),
+            std::for_each(_valid_feature_elements.cbegin(), _valid_feature_elements.cend(),
                 [&trans, &transaction](const std::pair<int, IOHIDElementRef>& elem) {
                     IOHIDValueRef value = trans.get(elem.second);
                     if (value) {
@@ -252,4 +232,6 @@ namespace GP {
         return succeed;
     }
     //## END WARNING
+
+    Gamepad::~Gamepad() {}
 }
