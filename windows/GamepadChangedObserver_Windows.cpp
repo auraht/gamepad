@@ -90,7 +90,6 @@ namespace GP {
 
     
     void GamepadChangedObserver::create_impl(void* eventloop) {
-        _simulated_gamepad = NULL;
         this->create_invisible_listener_window();
         
         // listen for hotplugged devices
@@ -122,8 +121,6 @@ namespace GP {
         if (path == NULL || data.device_handle != INVALID_HANDLE_VALUE) {
             //## TODO: Do we need a lock here?
             _active_devices.insert(std::make_pair(data.device_handle, gamepad));
-            if (path == NULL)
-                _simulated_gamepad = gamepad.get();
             return gamepad.get();
         } else
             return NULL;
@@ -141,7 +138,7 @@ namespace GP {
                 auto detail = reinterpret_cast<PSP_DEVICE_INTERFACE_DETAIL_DATA>(lparam);
                 Gamepad* gamepad = detail 
                     ? this_->insert_device_with_path(hwnd, detail->DevicePath) 
-                    : this_->_simulated_gamepad;
+                    : NULL;
                 if (gamepad != NULL)
                     this_->handle_event(*gamepad, GamepadState::attached);
                 free(detail);
