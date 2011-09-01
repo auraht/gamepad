@@ -1,6 +1,6 @@
 /*
  
-Compatibility.hpp ... Compatibility macros.
+GamepadExtra.hpp ... Extra structures for implementation of Gamepad in Linux.
 
 Copyright (c) 2011  aura Human Technology Ltd.  <rnd@auraht.com>
 All rights reserved.
@@ -30,27 +30,44 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 */
 
-#ifndef COMPATIBILITY_HPP_tgk9yntqol1pp66r
-#define COMPATIBILITY_HPP_tgk9yntqol1pp66r
+#ifndef GAMEPAD_EXTRA_HPP_85k167iqxcyjh5mi
+#define GAMEPAD_EXTRA_HPP_85k167iqxcyjh5mi 1
 
-#define GP_PLATFORM_WINDOWS 0
-#define GP_PLATFORM_DARWIN 1
-#define GP_PLATFORM_LINUX 2
+#include <cstring>
+#include <ev.h>
 
-#if _WIN32
-#define GP_PLATFORM GP_PLATFORM_WINDOWS
-#elif __APPLE__
-#define GP_PLATFORM GP_PLATFORM_DARWIN
-#elif __linux
-#define GP_PLATFORM GP_PLATFORM_LINUX
-#else
-#pragma error This platform not yet supported.
-#endif
+namespace GP {
+    struct GamepadData {
+        const char* path;
+        struct ev_loop* loop;
+        bool valid;
+    };
 
-#if __GNUC__
-#define ENUM_CLASS enum class
-#else
-#define ENUM_CLASS enum
-#endif
+//@@@TODO@@@: Avoid hard-coding these. Get a HID parser.
+#define GP_KNOWN_DESCRIPTOR \
+    "\x05\x01\x09\x04\xA1\x01\x95\x10\x75\x01\x05\x09\x19\x01\x29\x10" \
+    "\x15\x00\x25\x01\x81\x02\x95\x06\x75\x08\x05\x01\x09\x30\x09\x31" \
+    "\x09\x32\x09\x33\x09\x34\x09\x35\x15\x81\x25\x7F\x81\x06\xC0"
+#define GP_KNOWN_DESCRIPTOR_LENGTH 0x2f
+#define GP_REPORT_SIZE 8
+
+    struct KnownReport {
+        bool buttons[16];
+        signed char axes[6];
+        
+        KnownReport() {
+            memset(this, 0, sizeof(*this));
+        }
+
+        KnownReport(const char report_data[GP_REPORT_SIZE]) {
+            for (size_t i = 0; i < 8; ++ i) {
+                buttons[i] = report_data[0] & (1 << i);
+                buttons[i+8] = report_data[1] & (1 << i);
+            }
+            for (size_t i = 0; i < 6; ++ i)
+                axes[i] = report_data[i+2];
+        }
+    };
+}
 
 #endif

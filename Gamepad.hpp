@@ -47,6 +47,9 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <IOKit/hid/IOHIDManager.h>
 #include <unordered_map>
 #include <cstdint>
+#elif GP_PLATFORM == GP_PLATFORM_LINUX
+#include <ev.h>
+#include "linux/GamepadExtra.hpp"
 #endif
 
 namespace GP {
@@ -89,8 +92,8 @@ namespace GP {
         
     static inline Button button_from_usage(int usage_page, int usage) { return static_cast<Button>((usage_page - 9) << 16 | usage); }
     static Axis axis_from_usage(int usage_page, int usage);    
-    static inline bool valid(Axis axis) { return axis >= static_cast<Axis>(0) && axis < Axis::count; }
-    static inline bool valid(AxisGroup axis_group) { return axis_group >= static_cast<AxisGroup>(0) && axis_group < AxisGroup::group_count; }
+    static inline bool valid(Axis axis) { return static_cast<int>(axis) >= 0 && static_cast<int>(axis) < static_cast<int>(Axis::count); }
+    static inline bool valid(AxisGroup axis_group) { return static_cast<int>(axis_group) >= 0 && static_cast<int>(axis_group) < static_cast<int>(AxisGroup::group_count); }
 
     template <typename T>
     static const T* name(Axis);
@@ -151,7 +154,7 @@ namespace GP {
         void handle_key_event(UINT keycode, bool is_pressed);
         static VOID CALLBACK mouse_stop_timer(HWND hwnd, UINT msg, UINT_PTR timer, DWORD timestamp);
 
-#else
+#elif GP_PLATFORM == GP_PLATFORM_DARWIN
 
         uint64_t _last_report_time;
         std::unordered_map<int, IOHIDElementRef> _valid_output_elements, _valid_feature_elements;
@@ -161,7 +164,19 @@ namespace GP {
         static void handle_report(void* context, IOReturn, void*, IOHIDReportType, uint32_t, uint8_t*, CFIndex);
 
         void create_impl_impl(IOHIDDeviceRef device);
+
+#elif GP_PLATFORM == GP_PLATFORM_LINUX
+
+        ev_tstamp _last_report_time;
+        KnownReport _last_report;
         
+        struct ev_loop* _loop;
+        ev_io _watcher;
+        int _fd;
+        
+        bool create_impl_impl(const char* path, struct ev_loop* loop);
+        static void read_report_cb(struct ev_loop* loop, ev_io* watcher, int revents);
+
 #endif
 
         void create_impl(void* implementation_data);

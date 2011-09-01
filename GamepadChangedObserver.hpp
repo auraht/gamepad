@@ -45,6 +45,11 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <CoreFoundation/CoreFoundation.h>
 #include <unordered_map>
 #include "darwin/Shared.hpp"
+#elif GP_PLATFORM == GP_PLATFORM_LINUX
+#include <ev.h>
+#include <unordered_map>
+#include <memory>
+#include <libudev.h>
 #endif
 
 
@@ -98,6 +103,24 @@ namespace GP {
         static void matched_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device);
         static void removing_device_cb(void* context, IOReturn, void*, IOHIDDeviceRef device);
 
+#elif GP_PLATFORM == GP_PLATFORM_LINUX
+
+        struct ev_loop* _loop;
+        udev* _udev;
+        udev_monitor* _udev_mon;
+        ev_io _udev_watcher;
+
+        void create_impl(void* eventloop);
+        
+        std::unordered_map<dev_t, std::shared_ptr<Gamepad>> _active_devices;
+        
+        void observe_device_changes();
+        void add_existing_devices();
+        void open_device(udev_device* device);
+        void close_device(udev_device* device);
+        
+        static void device_changed_cb(struct ev_loop* loop, ev_io* watcher, int revents);
+
 #endif
         
         // Implementation-independent stuff...
@@ -112,6 +135,8 @@ namespace GP {
             std::unordered_map<HANDLE, std::shared_ptr<Gamepad>>::const_iterator cit;
 #elif GP_PLATFORM == GP_PLATFORM_DARWIN
             std::unordered_map<IOHIDDeviceRef, std::shared_ptr<Gamepad>>::const_iterator cit;
+#elif GP_PLATFORM == GP_PLATFORM_LINUX
+            std::unordered_map<dev_t, std::shared_ptr<Gamepad>>::const_iterator cit;
 #endif
             const_iterator(const decltype(cit)& it) : cit(it) {}            
 
